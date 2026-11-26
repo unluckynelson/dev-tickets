@@ -55,3 +55,16 @@ def dev(db):
 @pytest.fixture
 def outsider(db):
     return User.objects.create_user("outsider", email="out@example.com", password="x")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_caches():
+    """Lanes and stored settings are cached for a request; a test's rollback fires no
+    signal, so start every test from the database."""
+    from dev_tickets import conf, states
+
+    states.clear_cache()
+    conf.clear_cache()
+    yield
+    states.clear_cache()
+    conf.clear_cache()

@@ -9,7 +9,7 @@
 import { errorText, stateSeverity, timeAgo } from '../lib/helpers'
 
 const {
-  feed, loadingFeed, available, unreadCount, loadConfig, loadFeed, markSeen, setEmailUpdates,
+  feed, loadingFeed, available, unreadCount, loadConfig, loadFeed, markSeen,
   startPolling, stopPolling, ticketPath,
 } = useDevTickets()
 
@@ -49,15 +49,6 @@ async function toggle(event: Event) {
  *  popover is dismissed by hand: it is teleported out of the page being left. */
 function open() {
   panel.value?.hide()
-}
-
-async function email(on: boolean) {
-  try {
-    await setEmailUpdates(on)
-  }
-  catch (e) {
-    error.value = errorText(e)
-  }
 }
 
 function when(iso: string): string {
@@ -131,8 +122,10 @@ function when(iso: string): string {
         </ul>
 
         <footer v-if="feed" class="panel-foot">
-          <ToggleSwitch :model-value="feed.emailUpdates" input-id="dt-email" @update:model-value="email" />
-          <label for="dt-email">Email me what I haven't seen here</label>
+          <i class="pi pi-envelope" />
+          <span>Emails {{ feed.emailUpdates ? 'on' : 'off' }}</span>
+          <span class="grow" />
+          <NuxtLink :to="{ path: ticketPath(), query: { settings: 'notifications' } }" @click="open">Notification settings</NuxtLink>
         </footer>
       </div>
     </Popover>

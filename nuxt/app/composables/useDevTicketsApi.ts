@@ -106,10 +106,33 @@ export function useDevTicketsApi() {
     return response.data
   }
 
+  /**
+   * The Settings dialog's Connection calls, `/devtickets/settings/...` on this
+   * install's backend. Never GraphQL: in client mode GraphQL goes on to the hub. A
+   * refusal answers `{ ok: false, message }` with a 4xx, thrown as DevTicketsError.
+   */
+  async function settingsCall<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+    const url = `${origin()}/devtickets/settings/${path.replace(/^\/+/, '')}`
+    try {
+      if (body === undefined) return await ($fetch<T>(url, { credentials: 'include' }) as Promise<T>)
+      return await post<T>(url, body, true)
+    }
+    catch (e) {
+      const data = (e as { data?: { message?: string } })?.data
+      if (data?.message) throw new DevTicketsError(data.message)
+      throw e
+    }
+  }
+
   /** Multipart POST under `/devtickets-files/`. */
   function upload<T = unknown>(path: string, body: FormData): Promise<T> {
     return post<T>(filesUrl(path), body, false)
   }
 
-  return { graphql, upload, filesUrl, boardPath: settings.boardPath }
+  /** The backend's address, as another install would reach it. */
+  function backendOrigin(): string {
+    return origin() || (typeof window === 'undefined' ? '' : window.location.origin)
+  }
+
+  return { graphql, upload, settingsCall, filesUrl, backendOrigin, boardPath: settings.boardPath }
 }

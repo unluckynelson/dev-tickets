@@ -34,6 +34,14 @@ class TicketStateType:
     name: str
     type: str
     on_board: bool
+    # Filled by `devTicketLanes` only (the Settings dialog); 0 elsewhere.
+    tickets: int = 0
+
+
+def state_type_of(lane, tickets: int = 0) -> TicketStateType:
+    return TicketStateType(
+        id=lane.key, name=lane.name, type=lane.type, on_board=lane.on_board, tickets=tickets
+    )
 
 
 @strawberry.type

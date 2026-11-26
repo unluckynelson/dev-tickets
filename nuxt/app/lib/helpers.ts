@@ -65,3 +65,24 @@ export function date(iso: string): string {
 export function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
+
+/** What a lane can mean (the server's `states.TYPES`). The board colours a lane by it,
+ *  and a lane of a closed type closes the tickets in it. */
+export const LANE_TYPES = [
+  { value: 'triage', label: 'Triage', hint: 'New reports, not yet looked at' },
+  { value: 'backlog', label: 'Backlog', hint: 'Accepted, not planned' },
+  { value: 'unstarted', label: 'To do', hint: 'Planned, not started' },
+  { value: 'started', label: 'In progress', hint: 'Being worked on' },
+  { value: 'completed', label: 'Done', hint: 'Closes the ticket' },
+  { value: 'canceled', label: 'Canceled', hint: 'Closes the ticket, not done' },
+  { value: 'duplicate', label: 'Duplicate', hint: 'Where a ticket marked as a duplicate goes' },
+] as const
+
+/** A lane's colour, from its type. */
+export function laneAccent(type: string): string {
+  if (type === 'completed') return 'var(--p-green-500)'
+  if (type === 'started') return 'var(--p-blue-500)'
+  if (type === 'triage') return 'var(--p-orange-500)'
+  if (type === 'unstarted') return 'var(--p-primary-color)'
+  return 'var(--p-surface-400)'
+}

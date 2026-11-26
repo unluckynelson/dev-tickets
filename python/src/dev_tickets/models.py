@@ -13,7 +13,6 @@ from django.db import models
 from django.utils import timezone
 
 from . import conf, states
-from .states import CLOSED_KEYS
 
 User = settings.AUTH_USER_MODEL
 
@@ -92,6 +91,52 @@ class HubClient(TimeStampedModel):
         return self.name
 
 
+class TicketState(TimeStampedModel):
+    """A lane: a workflow state tickets move through. Data, edited in Settings.
+
+    `key` is what a ticket stores and never changes, so renaming a lane moves no
+    ticket. `type` says what the lane *means* -- where a new ticket lands is the
+    first board lane, and a ticket in a lane of a closed type (`states.CLOSED_TYPES`)
+    is closed: the bell calls it done and it stamps `closed_at`. Lanes not on the
+    board (canceled, duplicate) are still reachable from the ticket dialog.
+    """
+
+    key = models.SlugField(max_length=20, unique=True)
+    name = models.CharField(max_length=40, unique=True)
+    type = models.CharField(max_length=12, choices=states.TYPE_CHOICES, default="unstarted")
+    on_board = models.BooleanField(default=True)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["position", "pk"]
+
+    def __str__(self):
+        return self.name
+
+
+class TrackerSettings(TimeStampedModel):
+    """The one row of settings changed from the board's Settings dialog instead of
+    the host's `DEV_TICKETS`: which mode this install runs in and, as a client, how
+    it reaches its hub. A value the host sets in `DEV_TICKETS` wins and shows as
+    locked (`conf.get`).
+
+    The client's key is stored as given, since it must be sent to the hub on every
+    request; the hub keeps only its hash.
+    """
+
+    mode = models.CharField(max_length=12, blank=True)
+    hub_url = models.URLField(max_length=500, blank=True)
+    hub_api_key = models.CharField(max_length=200, blank=True)
+    source = models.CharField(max_length=60, blank=True)
+
+    class Meta:
+        verbose_name_plural = "tracker settings"
+
+    @classmethod
+    def load(cls) -> TrackerSettings:
+        return cls.objects.order_by("pk").first() or cls()
+
+
 class TicketLabel(TimeStampedModel):
     name = models.CharField(max_length=60, unique=True)
     color = models.CharField(max_length=9, default="#888888")
@@ -109,7 +154,7 @@ class DevTicket(TimeStampedModel):
     number = models.PositiveIntegerField(unique=True)
     title = models.CharField(max_length=300)
     description = models.TextField(blank=True)  # markdown
-    state = models.CharField(max_length=20, choices=states.CHOICES, default=states.TRIAGE)
+    state = models.CharField(max_length=20, default=states.TRIAGE)  # a TicketState.key
     priority = models.PositiveSmallIntegerField(default=3)  # see states.PRIORITIES
     labels = models.ManyToManyField(TicketLabel, blank=True, related_name="tickets")
 
@@ -150,7 +195,7 @@ class DevTicket(TimeStampedModel):
 
     @property
     def is_closed(self) -> bool:
-        return self.state in CLOSED_KEYS
+        return self.state in states.closed_keys()
 
     @property
     def state_name(self) -> str:

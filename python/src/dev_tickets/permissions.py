@@ -13,6 +13,14 @@ def can_access(user) -> bool:
     return bool(conf.hook("CAN_ACCESS")(user))
 
 
+def can_configure(user) -> bool:
+    """May change the mode and the hub connection (the Settings dialog's Connection)."""
+    if not can_access(user):
+        return False
+    hook = conf.hook("CAN_CONFIGURE")
+    return True if hook is None else bool(hook(user))
+
+
 def access_required(user):
     """The user, or PermissionDenied: for anyone signed out or outside the team."""
     if user is None or not getattr(user, "is_authenticated", False):

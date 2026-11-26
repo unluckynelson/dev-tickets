@@ -126,9 +126,9 @@ def _actor_header(user) -> str:
     })  # fmt: skip
 
 
-def _headers(request: HttpRequest, **extra: str) -> dict[str, str]:
+def _headers(request: HttpRequest, key: str | None = None, **extra: str) -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {conf.get('HUB_API_KEY')}",
+        "Authorization": f"Bearer {key or conf.get('HUB_API_KEY')}",
         ACTOR_HEADER: _actor_header(request.user),
         CONTEXT_HEADER: quote(context_label(request), safe=""),
         "Accept": "application/json",
@@ -147,6 +147,37 @@ def _call(request: HttpRequest, method: str, path: str, **kwargs) -> HubResponse
         response.close()
         raise HubUnreachable(f"HTTP {response.status} from the hub: {detail!r}")
     return response
+
+
+PROBE = '{"query": "{ devSupportConfig { enabled teamName prefix } }"}'
+
+
+def probe(request: HttpRequest, url: str, key: str) -> dict:
+    """Try a hub with this URL and key, as the signed-in user, before it is saved.
+    `{"ok": True, "team": ..., "prefix": ...}` or `{"ok": False, "message": ...}`."""
+    if not people.normalise_email(getattr(request.user, "email", "")):
+        return {"ok": False, "message": NO_EMAIL}
+    try:
+        response = transport(
+            "POST", url.rstrip("/") + API + "graphql/", body=PROBE.encode(),
+            headers=_headers(request, key=key, **{"Content-Type": "application/json"}),
+            timeout=float(conf.get("HUB_TIMEOUT")),
+        )  # fmt: skip
+    except HubUnreachable as exc:
+        return {"ok": False, "message": f"No answer from {url}: {exc}"}
+    raw = response.read()[:20000]
+    response.close()
+    if response.status == 404:
+        return {"ok": False, "message": "That server is not a dev-tickets hub (no hub API)."}
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return {"ok": False, "message": f"The hub answered HTTP {response.status}, not JSON."}
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if errors:
+        return {"ok": False, "message": "; ".join(str(e.get("message")) for e in errors)}
+    config = (body.get("data") or {}).get("devSupportConfig") or {}
+    return {"ok": True, "team": config.get("teamName", ""), "prefix": config.get("prefix", "")}
 
 
 # --- views --------------------------------------------------------------------

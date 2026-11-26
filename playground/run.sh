@@ -8,14 +8,21 @@
 # database and Nuxt on :3301. Its people (Priya, and a Maya who shares the hub
 # Maya's address) file tickets that land on the hub's board, marked "from client-demo".
 #   ./playground/run.sh --client   then also open http://localhost:3301/playground/
+#
+# With --open, the second install's mode is not set in its settings at all: open
+# http://localhost:3302/playground/, then the board's Settings → Connection, and make
+# it a client of the hub there with a key made in the hub's own Settings.
+#   ./playground/run.sh --open
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$ROOT/python/.venv/bin/python"
 CLIENT=0
+OPEN=0
 case "${1:-}" in
   "") ;;
   --client) CLIENT=1 ;;
-  *) echo "usage: $0 [--client]" >&2; exit 2 ;;
+  --open) OPEN=1 ;;
+  *) echo "usage: $0 [--client | --open]" >&2; exit 2 ;;
 esac
 
 if [ ! -x "$PY" ]; then
@@ -58,6 +65,15 @@ if [ "$CLIENT" = 1 ]; then
   (cd "$ROOT/nuxt" && PLAYGROUND_BACKEND_PORT=8301 exec npx nuxi dev .playground --port 3301) &
 fi
 
+if [ "$OPEN" = 1 ]; then
+  (
+    export DEV_TICKETS_MODE=open
+    "$PY" manage.py migrate -v0
+    "$PY" manage.py seed_playground_client
+    exec "$PY" manage.py runserver 8302
+  ) &
+  (cd "$ROOT/nuxt" && PLAYGROUND_BACKEND_PORT=8302 exec npx nuxi dev .playground --port 3302) &
+fi
 (cd "$ROOT/nuxt" && exec npx nuxi dev .playground --port 3300) &
 # `wait`, not a foreground command: bash runs the trap only once a foreground
 # command ends, but interrupts a wait at once.

@@ -40,7 +40,8 @@ Dev Tickets stays inside the app:
 
 | Feature | What it does |
 | --- | --- |
-| **Kanban board** | Triage → Backlog → Todo → In Progress → Done; Canceled and Duplicate sit off the board. Drag cards between lanes. Search, filter by reporter / assignee / priority / label, and choose the sort order. |
+| **Kanban board** | Triage → Backlog → Todo → In Progress → Done out of the box; Canceled and Duplicate sit off the board. Drag cards between lanes. Search, filter by reporter / assignee / priority / label, and choose the sort order. |
+| **Settings on the board** | A gear in the board's corner: add, rename, retype, reorder and remove lanes; edit labels; switch your email on or off; and set this install up as standalone, hub or client, including the hub's keys. See [Settings](#settings). |
 | **Deep links** | The open ticket is part of the URL (`/admin/dev-tickets/APP-12`), so a link pastes straight into chat. |
 | **Report widget** | A floating button on every page. Records the page URL and the context you were working in, and takes pasted screenshots and files. |
 | **Highlight on page** | Draw arrows, boxes, circles or freehand on the live page. A screenshot of the marked-up page is attached to the ticket. |
@@ -209,6 +210,7 @@ All settings live in one `DEV_TICKETS` dict.
 | `PREFIX` | `"DEV"` | Identifier prefix: `DEV-12`. |
 | `BOARD_URL` | `""` | Absolute URL of the board, used for links in emails. |
 | `CAN_ACCESS` | active superusers | `(user) -> bool`. Who may see the board, file tickets and get notifications. |
+| `CAN_CONFIGURE` | `CAN_ACCESS` | `(user) -> bool`. Who may change the connection (mode, hub, keys) in Settings. |
 | `TEAM` | active superusers | `() -> QuerySet` of users. Who can be assigned a ticket. |
 | `TEAM_NAME` | `"Dev"` | Shown on the board. |
 | `CONTEXT_LABEL` | none | `(request) -> str`. The tenant, company or workspace a ticket was filed from. |
@@ -224,12 +226,39 @@ All settings live in one `DEV_TICKETS` dict.
 | `HUB_TIMEOUT` | `10` | `client` mode: seconds to wait for the hub. |
 | `AVATAR` | none | `(user) -> str \| None`. A picture URL, sent to the hub with the person. |
 
+`MODE`, `HUB_URL`, `HUB_API_KEY` and `SOURCE` may also be left out and set in the board's
+Settings → Connection instead, where they are stored in the database. Whatever
+`DEV_TICKETS` sets wins, and shows in Settings as locked.
+
 Frontend (`runtimeConfig.public.devTickets`):
 
 | Key | What it does |
 | --- | --- |
 | `endpoint` | Your backend's `/devtickets/graphql/`. In every mode, the browser talks only to its own backend. |
 | `csrfUrl` | Optional. A URL to `GET` once so Django issues the CSRF cookie. |
+
+## Settings
+
+The gear in the board's top-right corner opens Settings. `?settings=lanes` (or `labels`,
+`notifications`, `connection`) on the board's URL opens it on that tab; the bell's
+"Notification settings" link uses that.
+
+- **Lanes.** Each lane has a name, a type and an *on board* switch, and lanes run in the
+  order listed. Tickets store a lane's fixed key, so renaming a lane moves nothing. The
+  **type** carries the meaning: *completed*, *canceled* and *duplicate* lanes close a
+  ticket, and changing a lane to or from one of those opens or closes the tickets in it.
+  New tickets land in the first lane on the board, and a ticket marked a duplicate moves
+  to the first *duplicate* lane. Removing a lane that still holds tickets asks where to
+  move them; each gets a history entry and nobody is notified. The board always keeps one
+  lane. In client mode the lanes are the hub's.
+- **Labels.** Name and colour; saved as you type.
+- **Notifications.** Your own email digest on or off.
+- **Connection.** Standalone, hub or client. As a client, enter the hub's address, the
+  key the hub made for this environment and a name for it; the connection is tried
+  before it is saved, so a typo cannot leave the board unreachable. As a hub, make,
+  rotate, revoke or set read-only the keys other environments use. A new key is shown
+  once. Only users passing `CAN_CONFIGURE` may change it, through `devtickets/settings/`
+  on the install itself, never forwarded to a hub.
 
 ---
 
@@ -278,6 +307,11 @@ A client still installs the app and runs its migrations, so the package is the s
 everywhere, but its ticket tables stay empty.
 
 ### Setting it up
+
+The quickest way is in the board's [Settings](#settings) → Connection: choose **Hub**
+on the hub, make a key for each environment there, then choose **Client** on each
+environment and paste the hub's address and its key. The rest of this section does the
+same in settings files and commands, which suits environments built from code.
 
 **On the hub** (usually production, or a small deployment of its own). A hub is a
 standalone install that also answers the API: its own users use the board exactly as
@@ -402,6 +436,14 @@ This starts the playground hub (Django :8300, Nuxt :3300) and a client beside it
 shares the hub Maya's address. Sign in at <http://localhost:3301/playground/>, file a
 ticket, and it appears on the hub's board at <http://localhost:3300> marked
 "from client-demo".
+
+```bash
+./playground/run.sh --open
+```
+
+The same hub, beside an install with no mode set at all (Django :8302, Nuxt :3302). Make
+a key in the hub's Settings → Connection, then on <http://localhost:3302/playground/>
+choose Client, enter `http://localhost:3300` and that key, and save.
 
 ---
 

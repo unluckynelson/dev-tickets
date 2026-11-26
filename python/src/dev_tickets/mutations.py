@@ -9,7 +9,7 @@ import re
 
 import strawberry
 
-from . import notify, service, titles
+from . import lanes, notify, service, titles
 from .actor import Actor, require
 from .models import TicketLabel
 from .service import KEEP, TicketError
@@ -18,10 +18,12 @@ from .types import (
     IssueCommentType,
     IssueDetailType,
     TicketLabelType,
+    TicketStateType,
     card_for,
     comment_type,
     issue_detail,
     label_type,
+    state_type_of,
 )
 
 _COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -203,3 +205,29 @@ class Mutation:
         _guard(info)
         TicketLabel.objects.filter(pk=id).delete()
         return True
+
+    # --- lanes (Settings) ------------------------------------------------------
+
+    @strawberry.mutation
+    def save_dev_ticket_lane(
+        self, info: strawberry.Info, name: str, type: str, on_board: bool = True,
+        id: str | None = None,
+    ) -> TicketStateType:  # fmt: skip
+        """Add a lane (no id; it goes last) or rename / retype one."""
+        _guard(info)
+        return state_type_of(lanes.save_lane(key=id, name=name, type=type, on_board=on_board))
+
+    @strawberry.mutation
+    def reorder_dev_ticket_lanes(
+        self, info: strawberry.Info, ids: list[str]
+    ) -> list[TicketStateType]:
+        _guard(info)
+        return [state_type_of(lane) for lane in lanes.reorder_lanes(ids)]
+
+    @strawberry.mutation
+    def delete_dev_ticket_lane(
+        self, info: strawberry.Info, id: str, move_to: str | None = None
+    ) -> int:
+        """Remove a lane; its tickets move to `move_to` first. Returns how many moved."""
+        actor = _guard(info)
+        return lanes.delete_lane(id, move_to=move_to, actor=actor.person)

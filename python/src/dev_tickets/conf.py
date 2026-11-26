@@ -1,13 +1,18 @@
 """Settings, read from one `DEV_TICKETS` dict in the host's settings.
 
 Every value is read when it is used, not at import, so `override_settings` and
-pytest-django's `settings` fixture work without reloading anything. The hooks
+pytest-django's `settings` fixture work without reloading anything.
+
+`STORED` settings (the mode and how a client reaches its hub) can also be set from
+the board's Settings dialog, kept in `TrackerSettings`. The host's value wins when
+it sets one, and the dialog shows that field as locked (`locked`). The hooks
 (`CAN_ACCESS`, `TEAM`, ...) take a callable or a dotted path to one; a dotted path
 is imported on first use, so a host module that imports these models can be named.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +33,9 @@ DEFAULTS: dict[str, Any] = {
     "BOARD_URL": "",
     # (user) -> bool. Who may see the board, file tickets and hold one.
     "CAN_ACCESS": "dev_tickets.defaults.can_access",
+    # (user) -> bool. Who may change the mode and hub connection in Settings.
+    # None: whoever passes CAN_ACCESS.
+    "CAN_CONFIGURE": None,
     # () -> QuerySet of users who can be assigned a ticket.
     "TEAM": "dev_tickets.defaults.team",
     # (request) -> str. The company / workspace a ticket was filed from.
@@ -59,11 +67,61 @@ CLIENT_REQUIRED = ("HUB_URL", "HUB_API_KEY", "SOURCE")
 
 MODES = ("standalone", "hub", "client")
 
+# Settings the Settings dialog may set, and the `TrackerSettings` field each lives in.
+STORED = {"MODE": "mode", "HUB_URL": "hub_url", "HUB_API_KEY": "hub_api_key", "SOURCE": "source"}
+
+_TTL = 1.0
+_stored: tuple[float, dict[str, str]] | None = None
+
+
+def _host() -> dict:
+    return getattr(settings, "DEV_TICKETS", {})
+
+
+def clear_cache(*_args, **_kwargs) -> None:
+    global _stored
+    _stored = None
+
+
+def _stored_values() -> dict[str, str]:
+    """The Settings dialog's values, cached for a request (cleared on request start
+    and on save). Empty before the table exists, e.g. during the first migrate."""
+    global _stored
+    now = time.monotonic()
+    if _stored is not None and now - _stored[0] < _TTL:
+        return _stored[1]
+    from django.db import DatabaseError
+
+    try:
+        from .models import TrackerSettings
+
+        row = TrackerSettings.objects.order_by("pk").first()
+    except DatabaseError:
+        row = None
+    values = (
+        {name: (getattr(row, field) or "").strip() for name, field in STORED.items()}
+        if row else {}
+    )  # fmt: skip
+    _stored = (now, values)
+    return values
+
+
+def locked(name: str) -> bool:
+    """True when the host's settings fix this value, so the dialog cannot change it."""
+    return name in _host()
+
 
 def get(name: str) -> Any:
     if name not in DEFAULTS:
         raise KeyError(f"Unknown DEV_TICKETS setting {name!r}.")
-    return getattr(settings, "DEV_TICKETS", {}).get(name, DEFAULTS[name])
+    host = _host()
+    if name in host:
+        return host[name]
+    if name in STORED:
+        value = _stored_values().get(name)
+        if value:
+            return value
+    return DEFAULTS[name]
 
 
 def hook(name: str) -> Callable | None:
@@ -80,21 +138,26 @@ def hook(name: str) -> Callable | None:
 
 
 def check() -> None:
-    unknown = set(getattr(settings, "DEV_TICKETS", {})) - set(DEFAULTS)
+    """The host's own settings, at startup. Values from the Settings dialog are
+    checked when they are saved instead (this runs before the database is ready)."""
+    host = _host()
+    unknown = set(host) - set(DEFAULTS)
     if unknown:
         raise ImproperlyConfigured(f"Unknown DEV_TICKETS settings: {', '.join(sorted(unknown))}.")
-    mode = get("MODE")
+    if "MODE" not in host:
+        return
+    mode = host["MODE"]
     if mode not in MODES:
         raise ImproperlyConfigured(f"DEV_TICKETS['MODE'] must be one of {', '.join(MODES)}.")
     if mode == "client":
-        missing = [name for name in CLIENT_REQUIRED if not str(get(name) or "").strip()]
+        missing = [name for name in CLIENT_REQUIRED if not str(host.get(name) or "").strip()]
         if missing:
             raise ImproperlyConfigured(
                 "DEV_TICKETS['MODE'] = 'client' needs "
                 + ", ".join(f"DEV_TICKETS[{name!r}]" for name in missing)
                 + "."
             )
-        url = str(get("HUB_URL"))
+        url = str(host.get("HUB_URL"))
         if not url.startswith(("http://", "https://")):
             raise ImproperlyConfigured(
                 f"DEV_TICKETS['HUB_URL'] = {url!r} must start with http:// or https://."

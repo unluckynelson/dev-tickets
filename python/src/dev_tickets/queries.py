@@ -5,12 +5,12 @@ without guarding."""
 from __future__ import annotations
 
 import strawberry
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from . import conf, service, states
 from .actor import actor_for, require
 from .digest import board_url
-from .models import DevTicket, TicketLabel, TicketNotification
+from .models import DevTicket, TicketLabel, TicketNotification, TicketState
 from .notify import summary
 from .types import (
     BoardLaneType,
@@ -27,6 +27,7 @@ from .types import (
     issue_detail,
     label_type,
     member_type,
+    state_type_of,
     ticket_ref,
 )
 
@@ -43,7 +44,7 @@ def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
         "team_name": str(conf.get("TEAM_NAME")),
         "states": [
             TicketStateType(id=s.key, name=s.name, type=s.type, on_board=s.on_board)
-            for s in states.STATES
+            for s in states.all_states()
         ],
         "priorities": [TicketPriorityType(value=v, label=lbl) for v, lbl in states.PRIORITIES],
     }
@@ -63,11 +64,20 @@ def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
     )
 
 
+def dev_ticket_lanes(info: strawberry.Info) -> list[TicketStateType]:
+    """Every lane in order, with how many tickets each holds (the Settings dialog)."""
+    _person(info)
+    counts = dict(
+        DevTicket.objects.values_list("state").annotate(n=Count("pk")).values_list("state", "n")
+    )
+    return [state_type_of(lane, counts.get(lane.key, 0)) for lane in TicketState.objects.all()]
+
+
 def dev_ticket_board(info: strawberry.Info) -> BoardType:
     """Every ticket in an on-board state, lane by lane, newest arrival on top.
     Canceled and duplicate tickets are off the board."""
     _person(info)
-    on_board = [s for s in states.STATES if s.on_board]
+    on_board = states.board_states()
     tickets = (
         card_queryset()
         .filter(state__in=[s.key for s in on_board])
@@ -135,3 +145,4 @@ class Query:
     dev_ticket_board: BoardType = strawberry.field(resolver=dev_ticket_board)
     dev_ticket_detail: IssueDetailType | None = strawberry.field(resolver=dev_ticket_detail)
     dev_ticket_search: list[TicketRefType] = strawberry.field(resolver=dev_ticket_search)
+    dev_ticket_lanes: list[TicketStateType] = strawberry.field(resolver=dev_ticket_lanes)

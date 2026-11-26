@@ -1,21 +1,18 @@
 <script setup lang="ts">
-// Add, rename, recolour and delete ticket labels. Deleting one takes it off every
-// ticket that has it.
+// Settings → Labels: add, rename, recolour and delete ticket labels. Deleting one
+// takes it off every ticket that has it.
 import { errorText } from '../lib/helpers'
 import type { TicketLabel } from '../lib/types'
 
-const visible = defineModel<boolean>('visible', { required: true })
 const emit = defineEmits<{ changed: [] }>()
 const { config, saveLabel, deleteLabel } = useDevTickets()
 
 const drafts = ref<{ id: string | null, name: string, color: string }[]>([])
 const error = ref('')
 
-watch(visible, (open) => {
-  if (!open) return
-  error.value = ''
+onMounted(() => {
   drafts.value = (config.value?.labels ?? []).map((l: TicketLabel) => ({ ...l }))
-}, { immediate: true })
+})
 
 function add() {
   drafts.value.push({ id: null, name: '', color: '#4EA7FC' })
@@ -48,7 +45,7 @@ async function remove(index: number) {
 </script>
 
 <template>
-  <Dialog v-model:visible="visible" modal header="Ticket labels" :style="{ width: '28rem' }">
+  <div>
     <Message v-if="error" severity="error" @close="error = ''">{{ error }}</Message>
     <ul class="rows">
       <li v-for="(row, i) in drafts" :key="row.id ?? `new-${i}`">
@@ -61,10 +58,7 @@ async function remove(index: number) {
       </li>
     </ul>
     <Button label="Add a label" icon="pi pi-plus" text size="small" @click="add" />
-    <template #footer>
-      <Button label="Done" @click="visible = false" />
-    </template>
-  </Dialog>
+  </div>
 </template>
 
 <style scoped>

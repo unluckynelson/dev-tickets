@@ -76,7 +76,6 @@ def _schema(properties: dict, required: tuple[str, ...] = ()) -> dict:
     }
 
 
-STATE_KEYS = [s.key for s in states.STATES]
 KINDS = list(states.RELATION_KINDS)
 TICKET = _string("The ticket, e.g. DEV-12.")
 LABELS = {"type": "array", "description": "Label names.", "items": _string("A label name.")}
@@ -170,7 +169,9 @@ def team(user) -> dict:
             {"id": str(u.pk), "name": display_name(u), "email": getattr(u, "email", "")}
             for u in service.team_members()
         ],
-        "states": [{"key": s.key, "name": s.name, "on_board": s.on_board} for s in states.STATES],
+        "states": [
+            {"key": s.key, "name": s.name, "on_board": s.on_board} for s in states.all_states()
+        ],
         "priorities": [{"value": v, "label": lbl} for v, lbl in states.PRIORITIES],
         "labels": [lbl.name for lbl in TicketLabel.objects.all()],
         "prefix": states.prefix(),
@@ -192,7 +193,7 @@ def list_tickets(
     if state:
         rows = rows.filter(state=state)
     elif not include_closed:
-        rows = rows.exclude(state__in=states.CLOSED_KEYS)
+        rows = rows.exclude(state__in=states.closed_keys())
     if assignee:
         rows = (
             rows.filter(assignee__isnull=True)
@@ -214,7 +215,7 @@ def get_ticket(user, ticket) -> dict:
 
 
 def create(
-    user, title, description="", priority=3, assignee=None, labels=None, state=states.TRIAGE
+    user, title, description="", priority=3, assignee=None, labels=None, state=None
 ) -> dict:
     access_required(user)
     ticket = service.create_ticket(
@@ -285,7 +286,7 @@ TOOLS: tuple[Tool, ...] = (
         "only when include_closed is true or a closed state is asked for.",
         _schema({
             "search": _string("Words to find in the title or description, or <PREFIX>-<n>."),
-            "state": _enum("Only this state.", STATE_KEYS),
+            "state": _string("Only this lane: a state key from team."),
             "assignee": _string("Name, email or 'none' for unassigned."),
             "reporter": _string("Name or email of who raised it."),
             "label": _string("A label name."),
@@ -313,7 +314,7 @@ TOOLS: tuple[Tool, ...] = (
             "priority": _integer("1 urgent, 2 high, 3 medium (default), 4 low, 0 none.", 0, 4),
             "assignee": _string("Name or email of a team member; omit to leave unassigned."),
             "labels": LABELS,
-            "state": _enum("Starting state (default triage).", STATE_KEYS),
+            "state": _string("Starting lane, a state key from team (default: first board lane)."),
         }, ("title",)),  # fmt: skip
         create,
         read_only=False,
@@ -328,7 +329,7 @@ TOOLS: tuple[Tool, ...] = (
             "title": _string("New title."),
             "description": _string("New description (markdown); replaces the old one."),
             "priority": _integer("1 urgent, 2 high, 3 medium, 4 low, 0 none.", 0, 4),
-            "state": _enum("New state.", STATE_KEYS),
+            "state": _string("New lane: a state key from team."),
             "assignee": _string("Name or email of a team member, or 'none'."),
             "labels": {**LABELS, "description": "The full set of label names."},
         }, ("ticket",)),  # fmt: skip

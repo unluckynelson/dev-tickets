@@ -7,6 +7,40 @@
 export interface TicketMember { id: string, name: string, email: string }
 export interface TicketPriority { value: number, label: string }
 export interface TicketState { id: string, name: string, type: string, onBoard: boolean }
+/** A lane as the Settings dialog edits it, with how many tickets it holds. */
+export interface Lane extends TicketState { tickets: number }
+
+/** An environment allowed to reach this hub (hub mode). */
+export interface HubEnvironment {
+  id: string
+  name: string
+  source: string
+  keyPrefix: string
+  readOnly: boolean
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
+export type TrackerMode = 'standalone' | 'hub' | 'client'
+
+/** `/devtickets/settings/`: this install's mode and hub connection. */
+export interface ConnectionState {
+  mode: TrackerMode
+  modes: TrackerMode[]
+  hubUrl: string
+  source: string
+  /** A client key is saved; it is never sent back, only its first characters. */
+  hasKey: boolean
+  keyHint: string
+  /** Fixed in the host's settings, so not editable here. */
+  locked: { mode: boolean, hubUrl: boolean, hubApiKey: boolean, source: boolean }
+  clients: HubEnvironment[]
+  /** A key just made or rotated, shown once. */
+  key?: string
+  keyFor?: string
+}
+
+export interface ConnectionTest { ok: boolean, team?: string, prefix?: string, message?: string }
 export interface TicketLabel { id: string, name: string, color: string }
 
 export interface DevTicketsConfig {
@@ -129,3 +163,6 @@ export interface TicketChanges {
   priority?: number
   labelIds?: string[]
 }
+
+/** A tab of the board's Settings dialog; `?settings=<tab>` on the board opens it. */
+export type SettingsTab = 'lanes' | 'labels' | 'notifications' | 'connection'

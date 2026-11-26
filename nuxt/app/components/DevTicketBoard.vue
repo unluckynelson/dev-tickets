@@ -9,8 +9,8 @@
 // of the page rather than scrolling sideways. Clicking a card opens the detail
 // dialog -- the open ticket IS the route (<base-path>/APP-12), so a card is
 // shareable. Search, filters and sort are client-side (useDevTicketFilters).
-import { errorText } from '../lib/helpers'
-import type { BoardIssue, BoardLane } from '../lib/types'
+import { errorText, laneAccent } from '../lib/helpers'
+import type { BoardIssue, BoardLane, SettingsTab } from '../lib/types'
 
 const props = withDefaults(defineProps<{
   /** Where the host mounted this page. The segment after it is the open ticket. */
@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
   title?: string
 }>(), { basePath: '', title: 'Dev tickets' })
 
-const { loadConfig, fetchBoard, moveTicket, basePath: sharedBase, ticketPath } = useDevTickets()
+const { config, loadConfig, fetchBoard, moveTicket, basePath: sharedBase, ticketPath } = useDevTickets()
 if (props.basePath) sharedBase.value = props.basePath
 
 const route = useRoute()
@@ -28,8 +28,8 @@ const route = useRoute()
 // would always be anonymous. Nothing is fetched for a user the server refuses.
 const allowed = ref<boolean | null>(null)
 const { data: board, refresh, pending, error } = useAsyncData('devtickets-board', async () => {
-  const config = await loadConfig()
-  allowed.value = !!config?.enabled
+  const settings = await loadConfig()
+  allowed.value = !!settings?.enabled
   return allowed.value ? fetchBoard() : null
   // deep: the board is edited in place (a moved card is spliced between lanes), and
   // Nuxt 4 hosts default to a shallow ref, which would leave the card where it was.
@@ -60,16 +60,23 @@ function openTicket(issue: BoardIssue) {
   navigateTo(ticketPath(issue.identifier))
 }
 
-function laneAccent(type: string): string {
-  if (type === 'completed') return 'var(--p-green-500)'
-  if (type === 'started') return 'var(--p-blue-500)'
-  if (type === 'triage') return 'var(--p-orange-500)'
-  if (type === 'unstarted') return 'var(--p-primary-color)'
-  return 'var(--p-surface-400)'
-}
-
 const filters = useDevTicketFilters()
-const showLabels = ref(false)
+// Settings: the gear, or `?settings=<tab>` (the bell links to its Notifications tab).
+const SETTINGS_TABS: SettingsTab[] = ['lanes', 'labels', 'notifications', 'connection']
+const showSettings = ref(false)
+const settingsTab = ref<SettingsTab>('lanes')
+watch(() => route.query.settings, (asked) => {
+  const wanted = String(asked ?? '') as SettingsTab
+  if (!SETTINGS_TABS.includes(wanted)) return
+  settingsTab.value = wanted
+  showSettings.value = true
+  const query = { ...route.query }
+  delete query.settings
+  navigateTo({ query }, { replace: true })
+}, { immediate: true })
+
+/** Lanes off the board, named for the line under the title. */
+const offBoard = computed(() => (config.value?.states ?? []).filter(s => !s.onBoard).map(s => s.name.toLowerCase()))
 
 const allIssues = computed<BoardIssue[]>(() => board.value?.lanes.flatMap(lane => lane.issues) ?? [])
 const total = computed(() => allIssues.value.length)
@@ -187,12 +194,11 @@ function onDrop(lane: BoardLane) {
           <p class="sub">
             <template v-if="filtered">{{ shown }} of {{ total }} tickets</template>
             <template v-else>{{ total }} {{ total === 1 ? 'ticket' : 'tickets' }}</template>
-            on the board; canceled and duplicate ones are off it. Drag a card to another lane
-            to move it. Everyone following a ticket hears about changes.
+            on the board<template v-if="offBoard.length">; {{ offBoard.join(' and ') }} ones are off it</template>.
+            Drag a card to another lane to move it. Everyone following a ticket hears about changes.
           </p>
         </div>
         <div class="tools">
-          <Button icon="pi pi-tags" label="Labels" severity="secondary" text @click="showLabels = true" />
           <Button
             icon="pi pi-refresh"
             label="Refresh"
@@ -200,6 +206,15 @@ function onDrop(lane: BoardLane) {
             outlined
             :loading="pending"
             @click="refresh()"
+          />
+          <Button
+            v-tooltip.bottom="'Settings'"
+            icon="pi pi-cog"
+            severity="secondary"
+            text
+            rounded
+            aria-label="Settings"
+            @click="showSettings = true"
           />
         </div>
       </header>
@@ -268,7 +283,7 @@ function onDrop(lane: BoardLane) {
         @updated="settle($event)"
         @changed="quietRefresh"
       />
-      <DevTicketLabels v-model:visible="showLabels" @changed="quietRefresh" />
+      <DevTicketSettings v-model:visible="showSettings" v-model:tab="settingsTab" @changed="quietRefresh" />
     </div>
     <template #fallback>
       <div class="page loading"><ProgressSpinner style="width: 2.5rem; height: 2.5rem" /></div>

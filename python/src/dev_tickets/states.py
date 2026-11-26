@@ -1,13 +1,20 @@
-"""The ticket vocabulary: workflow states, priorities and relation kinds. Code, not data.
+"""The ticket vocabulary: workflow states (lanes), priorities and relation kinds.
 
-Each state has a `type` -- the board colours its lanes by type, and `CLOSED_TYPES`
-is what "done" means to the bell and to reports. A fixed list rather than a table:
-a code-defined state can be relied on by name (`TRIAGE` is where new tickets land),
-and it is versioned with the package rather than drifting per install.
+Lanes are data (`models.TicketState`), edited in the board's Settings: a team can
+add, rename, reorder or retire them. Each has a `type`, which is what the code
+relies on rather than any lane's name -- a lane of a closed type closes a ticket,
+the first board lane is where new tickets land, and the first lane of type
+"duplicate" is where linking a duplicate sends it. The default seven are seeded by
+migration 0003 with the keys below, which tickets imported before lanes were data
+already hold.
+
+Reads go through `_lanes()`, cached for the length of a request (cleared on
+request start and on every lane change), since `is_closed` is asked per ticket.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from . import conf
@@ -30,7 +37,22 @@ DONE = "done"
 CANCELED = "canceled"
 DUPLICATE = "duplicate"
 
-STATES: tuple[State, ...] = (
+# What a lane means. The board colours a lane by its type.
+TYPES = (
+    ("triage", "Triage"),
+    ("backlog", "Backlog"),
+    ("unstarted", "To do"),
+    ("started", "In progress"),
+    ("completed", "Done"),
+    ("canceled", "Canceled"),
+    ("duplicate", "Duplicate"),
+)
+TYPE_CHOICES = list(TYPES)
+TYPE_KEYS = frozenset(k for k, _ in TYPES)
+CLOSED_TYPES = frozenset({"completed", "canceled", "duplicate"})
+
+# The lanes a new install starts with (migration 0003).
+DEFAULT_STATES: tuple[State, ...] = (
     State(TRIAGE, "Triage", "triage"),
     State(BACKLOG, "Backlog", "backlog"),
     State(TODO, "Todo", "unstarted"),
@@ -39,11 +61,56 @@ STATES: tuple[State, ...] = (
     State(CANCELED, "Canceled", "canceled", on_board=False),
     State(DUPLICATE, "Duplicate", "duplicate", on_board=False),
 )
-BY_KEY = {s.key: s for s in STATES}
-CHOICES = [(s.key, s.name) for s in STATES]
 
-CLOSED_TYPES = frozenset({"completed", "canceled", "duplicate"})
-CLOSED_KEYS = frozenset(s.key for s in STATES if s.type in CLOSED_TYPES)
+# Outside a request (commands, tests) the cache also expires on its own.
+_TTL = 1.0
+_cache: tuple[float, tuple[State, ...]] | None = None
+
+
+def clear_cache(*_args, **_kwargs) -> None:
+    global _cache
+    _cache = None
+
+
+def _lanes() -> tuple[State, ...]:
+    global _cache
+    now = time.monotonic()
+    if _cache is not None and now - _cache[0] < _TTL:
+        return _cache[1]
+    from .models import TicketState
+
+    lanes = TicketState.objects.order_by("position", "pk")
+    rows = tuple(State(r.key, r.name, r.type, r.on_board) for r in lanes)
+    _cache = (now, rows)
+    return rows
+
+
+def all_states() -> tuple[State, ...]:
+    return _lanes()
+
+
+def board_states() -> list[State]:
+    return [s for s in _lanes() if s.on_board]
+
+
+def by_key() -> dict[str, State]:
+    return {s.key: s for s in _lanes()}
+
+
+def closed_keys() -> frozenset[str]:
+    return frozenset(s.key for s in _lanes() if s.type in CLOSED_TYPES)
+
+
+def default_key() -> str:
+    """Where a new ticket lands: the first lane on the board."""
+    lanes = board_states() or list(_lanes())
+    return lanes[0].key if lanes else TRIAGE
+
+
+def duplicate_key() -> str | None:
+    """The lane a ticket marked as a duplicate moves to; None if there is none."""
+    return next((s.key for s in _lanes() if s.type == "duplicate"), None)
+
 
 # 0 sorts last; the scale most trackers use, so imported priorities keep their meaning.
 PRIORITIES = [
@@ -81,8 +148,10 @@ def parse_identifier(value: str) -> int | None:
 
 
 def state_name(key: str) -> str:
-    return BY_KEY[key].name if key in BY_KEY else key
+    lane = by_key().get(key)
+    return lane.name if lane else key
 
 
 def state_type(key: str) -> str:
-    return BY_KEY[key].type if key in BY_KEY else ""
+    lane = by_key().get(key)
+    return lane.type if lane else ""

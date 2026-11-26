@@ -6,6 +6,19 @@ versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+- Settings on the board (a gear in its corner, or `?settings=<tab>`): lanes, labels,
+  notifications and the connection, in one dialog. The Labels button and the bell's email
+  switch moved into it.
+- Lanes are data (`TicketState`): add, rename, retype, reorder, hide or remove them. A
+  lane's type decides whether its tickets are closed. Migration `0003` creates the seven
+  lanes there were, with their keys, so existing tickets keep their state.
+- The mode, hub address, key and source can be set in Settings → Connection and are
+  stored in the database (`TrackerSettings`); `DEV_TICKETS` still wins and shows as
+  locked. A client connection is tried before it is saved. As a hub, keys for other
+  environments are made, rotated and revoked there too. New `CAN_CONFIGURE` hook.
+- `./playground/run.sh --open`: a second install with no mode set, to try setting it up
+  from Settings.
+
 - `django-dev-tickets` 0.1.0 (`python/`): the dev-ticket app extracted from AutoRoster, with
   its own GraphQL endpoint (`/devtickets/graphql/`), file views, digest emails, MCP tool
   definitions and the `DEV_TICKETS` settings hooks. Standalone mode only.

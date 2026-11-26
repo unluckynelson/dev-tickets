@@ -177,8 +177,9 @@ def _check_priority(priority: int) -> int:
 
 
 def _check_state(state: str) -> str:
-    if state not in states.BY_KEY:
-        raise TicketError(f"Unknown state {state!r}; one of {', '.join(states.BY_KEY)}.")
+    known = states.by_key()
+    if state not in known:
+        raise TicketError(f"Unknown state {state!r}; one of {', '.join(known)}.")
     return state
 
 
@@ -197,7 +198,7 @@ def create_ticket(
     priority: int = 3,
     assignee=None,
     labels: Iterable[TicketLabel] = (),
-    state: str = states.TRIAGE,
+    state: str | None = None,
     page_url: str = "",
     context_label: str = "",
 ) -> DevTicket:
@@ -206,7 +207,7 @@ def create_ticket(
     title = _clean_title(title)
     description = _clean_text(description)
     _check_priority(priority)
-    _check_state(state)
+    state = _check_state(state or states.default_key())
     who, user = user, people.as_person(user)
     assignee = people.as_person(assignee)
     for _attempt in range(5):
@@ -217,7 +218,7 @@ def create_ticket(
                     priority=priority, state=state, assignee=assignee, reported_by=user,
                     page_url=(page_url or "")[:MAX_URL],
                     context_label=(context_label or "")[:150], source=people.source_of(who),
-                    closed_at=timezone.now() if state in states.CLOSED_KEYS else None,
+                    closed_at=timezone.now() if state in states.closed_keys() else None,
                 )  # fmt: skip
                 break
         except IntegrityError:
@@ -277,7 +278,7 @@ def update_ticket(
             events.append((Kind.STATE, ticket.state_name, states.state_name(state)))
             ticket.state = state
             ticket.state_changed_at = timezone.now()
-            ticket.closed_at = timezone.now() if state in states.CLOSED_KEYS else None
+            ticket.closed_at = timezone.now() if state in states.closed_keys() else None
             fields += ["state", "state_changed_at", "closed_at"]
         if assignee is not KEEP and getattr(assignee, "pk", None) != ticket.assignee_id:
             events.append((Kind.ASSIGNEE, display_name(ticket.assignee), display_name(assignee)))
@@ -368,8 +369,9 @@ def add_relation(ticket: DevTicket, user, other: DevTicket, kind: str) -> Ticket
         relation = TicketRelation.objects.create(ticket=ticket, other=other, kind=kind)
         _record(ticket, user, Kind.RELATION, new=f"{kind} {other.identifier}")
         # Marking a duplicate closes it.
-        if kind == states.DUPLICATE_OF and ticket.state != states.DUPLICATE:
-            update_ticket(ticket, user, state=states.DUPLICATE)
+        duplicate = states.duplicate_key()
+        if kind == states.DUPLICATE_OF and duplicate and ticket.state != duplicate:
+            update_ticket(ticket, user, state=duplicate)
     return relation
 
 

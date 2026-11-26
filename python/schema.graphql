@@ -107,6 +107,9 @@ type Mutation {
   setDevTicketEmail(on: Boolean!): Boolean!
   saveDevTicketLabel(name: String!, color: String!, id: String = null): TicketLabelType!
   deleteDevTicketLabel(id: String!): Boolean!
+  saveDevTicketLane(name: String!, type: String!, onBoard: Boolean! = true, id: String = null): TicketStateType!
+  reorderDevTicketLanes(ids: [String!]!): [TicketStateType!]!
+  deleteDevTicketLane(id: String!, moveTo: String = null): Int!
 }
 
 type Query {
@@ -115,6 +118,7 @@ type Query {
   devTicketBoard: BoardType!
   devTicketDetail(id: String!): IssueDetailType
   devTicketSearch(query: String!, limit: Int! = 10): [TicketRefType!]!
+  devTicketLanes: [TicketStateType!]!
 }
 
 type TicketAttachmentType {
@@ -179,4 +183,5 @@ type TicketStateType {
   name: String!
   type: String!
   onBoard: Boolean!
+  tickets: Int!
 }
