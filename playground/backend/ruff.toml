@@ -1,0 +1,10 @@
+line-length = 100
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+isort.known-first-party = ["dev_tickets", "playground"]
+
+[lint.per-file-ignores]
+# Sample tickets read better as one line each than wrapped.
+"playground/management/commands/seed_playground*.py" = ["E501"]

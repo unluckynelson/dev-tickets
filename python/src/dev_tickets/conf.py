@@ -16,7 +16,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
 DEFAULTS: dict[str, Any] = {
-    # standalone: tickets in this database. hub / client: planned, not built yet.
+    # standalone: tickets in this database, for this install's users.
+    # hub: the same, and other installs reach the board through the API (`hub.py`).
+    # client: no tickets here; every request is forwarded to the hub (`client.py`).
     "MODE": "standalone",
     # Identifier prefix: DEV-12.
     "PREFIX": "DEV",
@@ -41,11 +43,19 @@ DEFAULTS: dict[str, Any] = {
     "MAX_ATTACHMENT_MB": 15,
     # Username or email new tickets are assigned to when the reporter names nobody.
     "DEFAULT_ASSIGNEE": None,
-    # client mode (planned): the hub's base URL, this environment's key and its name.
+    # client mode: the hub's base URL, this environment's key (`devtickets_client add`
+    # on the hub prints it) and its name, shown on the hub as "from <SOURCE>".
     "HUB_URL": None,
     "HUB_API_KEY": None,
     "SOURCE": None,
+    # client mode: seconds to wait for the hub before giving up.
+    "HUB_TIMEOUT": 10,
+    # (user) -> str | None. A picture of the user, sent to the hub with each request.
+    "AVATAR": None,
 }
+
+# Settings a client cannot run without.
+CLIENT_REQUIRED = ("HUB_URL", "HUB_API_KEY", "SOURCE")
 
 MODES = ("standalone", "hub", "client")
 
@@ -76,5 +86,20 @@ def check() -> None:
     mode = get("MODE")
     if mode not in MODES:
         raise ImproperlyConfigured(f"DEV_TICKETS['MODE'] must be one of {', '.join(MODES)}.")
-    if mode != "standalone":
-        raise ImproperlyConfigured(f"DEV_TICKETS['MODE'] = {mode!r} is not implemented yet.")
+    if mode == "client":
+        missing = [name for name in CLIENT_REQUIRED if not str(get(name) or "").strip()]
+        if missing:
+            raise ImproperlyConfigured(
+                "DEV_TICKETS['MODE'] = 'client' needs "
+                + ", ".join(f"DEV_TICKETS[{name!r}]" for name in missing)
+                + "."
+            )
+        url = str(get("HUB_URL"))
+        if not url.startswith(("http://", "https://")):
+            raise ImproperlyConfigured(
+                f"DEV_TICKETS['HUB_URL'] = {url!r} must start with http:// or https://."
+            )
+
+
+def mode() -> str:
+    return str(get("MODE"))

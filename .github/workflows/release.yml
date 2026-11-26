@@ -1,0 +1,111 @@
+name: Release
+
+# A pushed tag vX.Y.Z (made by scripts/release.sh) publishes both packages under that
+# version, then makes the GitHub release from the CHANGELOG section. Nothing publishes
+# unless the tag, both packages and the checks agree.
+#
+# One-time setup, on the services:
+#   PyPI:  add a "trusted publisher" for project django-dev-tickets:
+#          owner unluckynelson, repo dev-tickets, workflow release.yml, environment pypi.
+#          (No token is stored anywhere; GitHub proves who is publishing.)
+#   npm:   create an automation token and save it as the repository secret NPM_TOKEN.
+#   GitHub: create the environments "pypi" and "npm" (Settings → Environments); add
+#          yourself as a required reviewer there if every publish should wait for a click.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: scripts/check-versions.sh "${{ github.ref_name }}"
+      - name: The tag has release notes
+        run: test -n "$(scripts/changelog-section.sh '${{ github.ref_name }}')"
+
+  test:
+    name: Checks
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  build-python:
+    name: Build python
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 scripts/package-readme.py python "${{ github.ref_name }}"
+      - run: pip install build && python -m build python --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build-python
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-npm:
+    name: Publish to npm
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: nuxt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: python3 ../scripts/package-readme.py nuxt "${{ github.ref_name }}"
+      - run: npm ci
+      - name: Publish (pre-releases go to the "next" tag, never "latest")
+        run: |
+          tag=latest
+          case "${{ github.ref_name }}" in *-*) tag=next ;; esac
+          npm publish --provenance --access public --tag "$tag"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    name: GitHub release
+    needs: [publish-pypi, publish-npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/changelog-section.sh "${{ github.ref_name }}" > notes.md
+      - run: |
+          pre=""
+          case "${{ github.ref_name }}" in *-*) pre="--prerelease" ;; esac
+          gh release create "${{ github.ref_name }}" --title "${{ github.ref_name }}" \
+            --notes-file notes.md $pre
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,3 +1,7 @@
 playground.sqlite3
+playground-client.sqlite3
 media/
+media-client/
 .seeded
+# The client's hub key, made by `run.sh --client` and reused on later runs.
+.client-key

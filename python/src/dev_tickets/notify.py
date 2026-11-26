@@ -36,10 +36,8 @@ def email_after() -> timedelta:
     return timedelta(seconds=int(conf.get("EMAIL_AFTER")))
 
 
-def _name(user) -> str:
-    if user is None:
-        return "Someone"
-    return user.get_full_name() or user.get_username()
+def _name(person) -> str:
+    return (person.display_name if person is not None else "") or "Someone"
 
 
 def summary(event: TicketEvent) -> str:
@@ -70,18 +68,22 @@ def summary(event: TicketEvent) -> str:
 
 def fan_out(event: TicketEvent) -> int:
     """Tell every subscriber but the actor. Returns how many were told."""
-    users = (
-        TicketSubscription.objects.filter(ticket_id=event.ticket_id, user__is_active=True)
-        .exclude(user_id=event.actor_id)
-        .values_list("user_id", flat=True)
+    # A person whose local account was deactivated hears nothing more.
+    subscribers = (
+        TicketSubscription.objects.filter(ticket_id=event.ticket_id)
+        .exclude(person__user__is_active=False)
+        .exclude(person_id=event.actor_id)
+        .values_list("person_id", flat=True)
     )
-    rows = [TicketNotification(user_id=uid, event=event) for uid in users]
+    rows = [TicketNotification(person_id=pid, event=event) for pid in subscribers]
     TicketNotification.objects.bulk_create(rows, ignore_conflicts=True)
     return len(rows)
 
 
-def mark_read(user, ticket_id=None) -> int:
-    rows = TicketNotification.objects.filter(user=user, read_at__isnull=True)
+def mark_read(who, ticket_id=None) -> int:
+    from .people import as_person
+
+    rows = TicketNotification.objects.filter(person=as_person(who), read_at__isnull=True)
     if ticket_id is not None:
         rows = rows.filter(event__ticket_id=ticket_id)
     return rows.update(read_at=timezone.now())
@@ -100,31 +102,31 @@ def deliver(now=None) -> int:
             emailed_at__isnull=True, created_at__lte=now - email_after()
         )
         .select_related(
-            "user", "event__actor", "event__comment", "event__ticket__assignee",
+            "person__user", "event__actor", "event__comment", "event__ticket__assignee",
             "event__ticket__reported_by",
         )  # fmt: skip
         .prefetch_related("event__ticket__labels")
         .order_by("created_at", "pk")
     )
-    by_user: dict = defaultdict(list)
+    by_person: dict = defaultdict(list)
     for n in due:
-        by_user[n.user].append(n)
-    if not by_user:
+        by_person[n.person].append(n)
+    if not by_person:
         return 0
 
     muted = set(
-        TicketPreferences.objects.filter(user__in=list(by_user), email_updates=False).values_list(
-            "user_id", flat=True
-        )
+        TicketPreferences.objects.filter(
+            person__in=list(by_person), email_updates=False
+        ).values_list("person_id", flat=True)
     )
     send = conf.hook("SEND_MAIL")
     sent = 0
-    for user, rows in by_user.items():
+    for person, rows in by_person.items():
         fresh = [n for n in rows if n.read_at is None and n.created_at > now - EMAIL_UNTIL]
-        address = getattr(user, "email", "")
-        if fresh and address and user.pk not in muted:
+        address = person.email or ""
+        if fresh and address and person.pk not in muted:
             context = {
-                "name": getattr(user, "first_name", "") or user.get_username(),
+                "name": (person.name.split() or [address])[0],
                 "items": digest.items(fresh),
                 "team_name": conf.get("TEAM_NAME"),
             }
@@ -137,7 +139,7 @@ def deliver(now=None) -> int:
                 )
                 sent += 1
             except Exception:  # noqa: BLE001 -- logged; the others still go
-                logger.exception("Dev-ticket digest to %s failed", user.pk)
+                logger.exception("Dev-ticket digest to person %s failed", person.pk)
         with transaction.atomic():
             TicketNotification.objects.filter(pk__in=[n.pk for n in rows]).update(emailed_at=now)
     return sent

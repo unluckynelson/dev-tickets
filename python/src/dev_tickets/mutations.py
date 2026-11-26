@@ -1,5 +1,7 @@
-"""Write resolvers. Each checks `CAN_ACCESS`; every change goes through `service`,
-which validates it, logs it and tells the subscribers."""
+"""Write resolvers. Each asks for the request's actor (`actor.require`), which is a
+local user who passed `CAN_ACCESS` or a person a hub client vouches for; every
+change goes through `service`, which validates it, logs it and tells the subscribers.
+A hub client with a read-only key gets no mutation at all."""
 
 from __future__ import annotations
 
@@ -8,8 +10,8 @@ import re
 import strawberry
 
 from . import notify, service, titles
+from .actor import Actor, require
 from .models import TicketLabel
-from .permissions import access_required, context_label
 from .service import KEEP, TicketError
 from .types import (
     BoardIssueType,
@@ -25,8 +27,8 @@ from .types import (
 _COLOUR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def _guard(info: strawberry.Info):
-    return access_required(info.context.request.user)
+def _guard(info: strawberry.Info) -> Actor:
+    return require(info.context.request, write=True)
 
 
 def _keep(value):
@@ -53,7 +55,7 @@ class Mutation:
         """`assignee_id` unset falls back to DEFAULT_ASSIGNEE; an explicit
         null leaves it unassigned. A blank title is written from the description
         (`titles.title_for`), which is then required."""
-        user = _guard(info)
+        actor = _guard(info)
         if not title.strip():
             if not description.strip():
                 raise TicketError("Describe the problem or the request.")
@@ -66,9 +68,9 @@ class Mutation:
             [] if label_ids in (strawberry.UNSET, None) else service.labels_or_refuse(label_ids)
         )
         ticket = service.create_ticket(
-            user=user, title=title, description=description, priority=priority,
+            user=actor, title=title, description=description, priority=priority,
             assignee=assignee, labels=labels, page_url=page_url,
-            context_label=context_label(info.context.request),
+            context_label=actor.context_label,
         )  # fmt: skip
         return card_for(ticket)
 
@@ -83,18 +85,18 @@ class Mutation:
         label_ids: list[str] | None = strawberry.UNSET,
     ) -> IssueDetailType:
         """Edit what a ticket says. Lane and assignee have their own mutations."""
-        user = _guard(info)
+        actor = _guard(info)
         ticket = service.ticket_or_refuse(id)
         service.update_ticket(
-            ticket, user, title=_keep(title), description=_keep(description),
+            ticket, actor, title=_keep(title), description=_keep(description),
             priority=_keep(priority), labels=_labels(label_ids),
         )  # fmt: skip
-        return issue_detail(ticket, user)
+        return issue_detail(ticket, actor.person)
 
     @strawberry.mutation
     def move_dev_ticket(self, info: strawberry.Info, id: str, state_id: str) -> BoardIssueType:
-        user = _guard(info)
-        ticket = service.update_ticket(service.ticket_or_refuse(id), user, state=state_id)
+        actor = _guard(info)
+        ticket = service.update_ticket(service.ticket_or_refuse(id), actor, state=state_id)
         return card_for(ticket)
 
     @strawberry.mutation
@@ -102,76 +104,76 @@ class Mutation:
         self, info: strawberry.Info, id: str, assignee_id: str | None
     ) -> BoardIssueType:
         """An explicit null unassigns."""
-        user = _guard(info)
+        actor = _guard(info)
         assignee = service.member_or_refuse(assignee_id) if assignee_id else None
-        ticket = service.update_ticket(service.ticket_or_refuse(id), user, assignee=assignee)
+        ticket = service.update_ticket(service.ticket_or_refuse(id), actor, assignee=assignee)
         return card_for(ticket)
 
     @strawberry.mutation
     def comment_on_dev_ticket(self, info: strawberry.Info, id: str, body: str) -> IssueCommentType:
-        user = _guard(info)
-        comment = service.add_comment(service.ticket_or_refuse(id), user, body)
-        return comment_type(comment, user)
+        actor = _guard(info)
+        comment = service.add_comment(service.ticket_or_refuse(id), actor, body)
+        return comment_type(comment, actor.person)
 
     @strawberry.mutation
     def edit_dev_ticket_comment(
         self, info: strawberry.Info, id: str, body: str
     ) -> IssueCommentType:
-        user = _guard(info)
-        return comment_type(service.edit_comment(id, user, body), user)
+        actor = _guard(info)
+        return comment_type(service.edit_comment(id, actor, body), actor.person)
 
     @strawberry.mutation
     def delete_dev_ticket_comment(self, info: strawberry.Info, id: str) -> bool:
-        user = _guard(info)
-        service.delete_comment(id, user)
+        actor = _guard(info)
+        service.delete_comment(id, actor)
         return True
 
     @strawberry.mutation
     def link_dev_tickets(
         self, info: strawberry.Info, id: str, other_id: str, kind: str = "related"
     ) -> IssueDetailType:
-        user = _guard(info)
+        actor = _guard(info)
         ticket = service.ticket_or_refuse(id)
-        service.add_relation(ticket, user, service.ticket_or_refuse(other_id), kind)
-        return issue_detail(ticket, user)
+        service.add_relation(ticket, actor, service.ticket_or_refuse(other_id), kind)
+        return issue_detail(ticket, actor.person)
 
     @strawberry.mutation
     def unlink_dev_tickets(
         self, info: strawberry.Info, id: str, relation_id: str
     ) -> IssueDetailType:
-        user = _guard(info)
+        actor = _guard(info)
         ticket = service.ticket_or_refuse(id)
-        service.remove_relation(relation_id, user)
-        return issue_detail(ticket, user)
+        service.remove_relation(relation_id, actor)
+        return issue_detail(ticket, actor.person)
 
     @strawberry.mutation
     def delete_dev_ticket_attachment(
         self, info: strawberry.Info, id: str, attachment_id: str
     ) -> IssueDetailType:
-        user = _guard(info)
+        actor = _guard(info)
         ticket = service.ticket_or_refuse(id)
-        service.delete_attachment(attachment_id, user)
-        return issue_detail(ticket, user)
+        service.delete_attachment(attachment_id, actor)
+        return issue_detail(ticket, actor.person)
 
     @strawberry.mutation
     def subscribe_dev_ticket(self, info: strawberry.Info, id: str, on: bool) -> bool:
-        user = _guard(info)
-        service.subscribe(service.ticket_or_refuse(id), user, on)
+        actor = _guard(info)
+        service.subscribe(service.ticket_or_refuse(id), actor, on)
         return on
 
     @strawberry.mutation
     def mark_dev_tickets_seen(self, info: strawberry.Info, id: str | None = None) -> int:
         """Mark the bell read -- all of it, or one ticket's rows. Returns what is
         still unread."""
-        user = _guard(info)
+        actor = _guard(info)
         ticket = service.ticket_or_refuse(id) if id else None
-        notify.mark_read(user, ticket.pk if ticket else None)
-        return user.dev_ticket_notifications.filter(read_at__isnull=True).count()
+        notify.mark_read(actor.person, ticket.pk if ticket else None)
+        return actor.person.notifications.filter(read_at__isnull=True).count()
 
     @strawberry.mutation
     def set_dev_ticket_email(self, info: strawberry.Info, on: bool) -> bool:
-        user = _guard(info)
-        prefs = service.prefs_for(user)
+        actor = _guard(info)
+        prefs = service.prefs_for(actor)
         prefs.email_updates = on
         prefs.save()
         return on

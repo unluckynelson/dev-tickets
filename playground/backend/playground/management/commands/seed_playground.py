@@ -6,11 +6,12 @@ start again.
 
 from datetime import timedelta
 
-from dev_tickets import service
-from dev_tickets.models import DevTicket, TicketLabel
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
+
+from dev_tickets import service
+from dev_tickets.models import DevTicket, TicketLabel
 
 
 class Command(BaseCommand):

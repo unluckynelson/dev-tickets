@@ -1,0 +1,71 @@
+name: CI
+
+# The same checks scripts/release.sh runs before it will tag, on every push and PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call: # the release workflow runs these before it publishes
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Versions agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: scripts/check-versions.sh
+
+  python:
+    name: Python ${{ matrix.python }} / Django ${{ matrix.django }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { python: "3.10", django: "5.1" }
+          - { python: "3.12", django: "5.2" }
+          - { python: "3.13", django: "5.2" }
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
+      - run: pip install -e ".[dev,mcp]" "Django~=${{ matrix.django }}.0"
+      - run: pytest -q
+      - run: ruff check .
+      - name: Schema export is up to date
+        # The Nuxt layer's operations are checked against schema.graphql, so a type
+        # change that was not re-exported would let the two drift apart unnoticed.
+        run: |
+          DJANGO_SETTINGS_MODULE=tests.settings python -c "import django; django.setup(); \
+          from dev_tickets.schema import schema; print(schema.as_str())" > /tmp/schema.graphql
+          diff -u schema.graphql /tmp/schema.graphql
+
+  nuxt:
+    name: Nuxt layer
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nuxt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: nuxt/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build

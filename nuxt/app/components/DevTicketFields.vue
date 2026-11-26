@@ -93,6 +93,7 @@ const pagePath = computed(() => {
       <span>
         Reported by <strong>{{ detail.reporterName || 'unknown' }}</strong>
         <template v-if="detail.contextLabel"> in {{ detail.contextLabel }}</template>
+        <template v-if="detail.source"> · from {{ detail.source }}</template>
         · {{ date(detail.createdAt) }}
       </span>
       <a

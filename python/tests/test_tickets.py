@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
-from dev_tickets import notify, service, states
+from dev_tickets import notify, people, service, states
 from dev_tickets.models import (
     DevTicket,
     TicketAttachment,
@@ -24,7 +24,9 @@ User = get_user_model()
 def unread(user) -> list[str]:
     return [
         notify.summary(n.event)
-        for n in TicketNotification.objects.filter(user=user, read_at__isnull=True).order_by("pk")
+        for n in TicketNotification.objects.filter(
+            person=people.for_user(user), read_at__isnull=True
+        ).order_by("pk")
     ]
 
 
@@ -129,7 +131,8 @@ def test_new_tickets_continue_imported_numbering_and_name_the_real_reporter(lead
         "contextLabel": "",
     }
     ticket = DevTicket.objects.get(number=145)
-    assert set(ticket.subscriptions.values_list("user__username", flat=True)) == {"sam", "lead"}
+    followers = ticket.subscriptions.values_list("person__user__username", flat=True)
+    assert set(followers) == {"sam", "lead"}
     assert unread(lead) == ["Sam reported it"]
     assert unread(dev) == []
 

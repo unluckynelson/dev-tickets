@@ -13,12 +13,11 @@ A Django app and a Nuxt layer · one versioned release for both
 
 ---
 
-> **Status: 0.1, standalone mode works.** Dev Tickets runs in production inside
+> **Status: 0.x, pre-release.** Dev Tickets runs in production inside
 > [AutoRoster](https://autoroster.co.za), where it replaced Linear in November 2026, and is
-> now extracted here: the Django app and the Nuxt layer run together in the
-> [playground](#development). Hub and client mode ([below](#one-board-for-every-environment))
-> are designed but not built yet, and nothing is on PyPI or npm until `v1.0.0`; until
-> then, settings and names may still change.
+> now extracted here. Standalone, hub and client modes all work and run together in the
+> [playground](#development). Nothing is on PyPI or npm until `v1.0.0`; until then,
+> settings and names may still change.
 
 ## Why
 
@@ -206,7 +205,7 @@ All settings live in one `DEV_TICKETS` dict.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `MODE` | `"standalone"` | `standalone`, `hub` or `client`. See [below](#one-board-for-every-environment). Only `standalone` is built so far; the others refuse to start. |
+| `MODE` | `"standalone"` | `standalone`, `hub` or `client`. See [below](#one-board-for-every-environment). |
 | `PREFIX` | `"DEV"` | Identifier prefix: `DEV-12`. |
 | `BOARD_URL` | `""` | Absolute URL of the board, used for links in emails. |
 | `CAN_ACCESS` | active superusers | `(user) -> bool`. Who may see the board, file tickets and get notifications. |
@@ -222,6 +221,8 @@ All settings live in one `DEV_TICKETS` dict.
 | `HUB_URL` | — | `client` mode: the hub's base URL. |
 | `HUB_API_KEY` | — | `client` mode: this environment's key. Keep it in the environment, never in git. |
 | `SOURCE` | — | `client` mode: shown on each ticket, e.g. `"staging"`. |
+| `HUB_TIMEOUT` | `10` | `client` mode: seconds to wait for the hub. |
+| `AVATAR` | none | `(user) -> str \| None`. A picture URL, sent to the hub with the person. |
 
 Frontend (`runtimeConfig.public.devTickets`):
 
@@ -240,8 +241,8 @@ staging overwrites staging's tickets. Most teams want **one board**, wherever a 
 was filed from.
 
 Dev Tickets does this over an **API, not a shared database connection**. One deployment is
-the **hub** and owns the tickets. Every other environment runs as a **client** and has no
-ticket tables at all.
+the **hub** and owns the tickets. Every other environment runs as a **client** and forwards
+everything to the hub.
 
 ```mermaid
 flowchart LR
@@ -262,22 +263,25 @@ flowchart LR
 **Why an API and not a second `DATABASES` entry:**
 
 - **Users differ in each environment.** User 7 on staging is not user 7 in production, so a
-  foreign key cannot cross environments. The hub knows people by **email** and keeps its
-  own small table of them (name, email, avatar). A client says who is acting, and the hub
-  matches on email.
+  foreign key cannot cross environments. Tickets point at **people** instead: a small table
+  of name, email and avatar, matched on **email** (case-insensitive). A client says who is
+  acting, and the hub finds or creates that person. Someone who signs in to the hub itself
+  and also files from staging under the same address is **one person**, with one bell.
 - **No database credentials leave the hub.** A laptop holds an API key that can be revoked
   on its own, not a password for the production database.
-- **Schema changes happen in one place.** Only the hub runs migrations. A client and a hub
-  on different minor versions can still talk to each other, which is not true of two
-  Django processes migrating one database.
 - **Email goes out once.** Only the hub sends digests, so three environments never send
   the same notification three times.
 - **Attachments live in one place.** A client streams uploads through to the hub, so a
   screenshot filed from a laptop can still be opened from production.
 
+A client still installs the app and runs its migrations, so the package is the same
+everywhere, but its ticket tables stay empty.
+
 ### Setting it up
 
-**On the hub** (usually production, or a small deployment of its own):
+**On the hub** (usually production, or a small deployment of its own). A hub is a
+standalone install that also answers the API: its own users use the board exactly as
+before.
 
 ```python
 DEV_TICKETS = {
@@ -288,11 +292,17 @@ DEV_TICKETS = {
 ```
 
 ```bash
-python manage.py devtickets_client add staging     # prints the key once
-python manage.py devtickets_client add dev-johan
-python manage.py devtickets_client list
-python manage.py devtickets_client revoke dev-johan
+python manage.py devtickets_client add staging                  # prints the key once
+python manage.py devtickets_client add dev-maya --source laptop
+python manage.py devtickets_client add demo --read-only
+python manage.py devtickets_client list                         # name, source, key prefix, last used
+python manage.py devtickets_client rotate staging               # new key; the old one stops working
+python manage.py devtickets_client revoke dev-maya
 ```
+
+A key is `dt_` plus 43 random characters. The hub stores only its SHA-256 and its first
+8 characters (so `list` can tell keys apart). `--source` is the label stamped on what the
+client files; it defaults to the client's name.
 
 **On each client:**
 
@@ -302,58 +312,96 @@ DEV_TICKETS = {
     "HUB_URL": "https://app.example.com",
     "HUB_API_KEY": env("DEV_TICKETS_HUB_KEY"),
     "SOURCE": "staging",
+    # optional
+    "HUB_TIMEOUT": 10,                       # seconds
+    "AVATAR": "myapp.devtickets.avatar",     # (user) -> URL or None
 }
 ```
 
-Nothing changes in the frontend. The browser keeps talking to its own backend with its
-own session cookie. In client mode, that backend checks `CAN_ACCESS` against its own
-user, then forwards the request to the hub with its key and the user's identity. The
-API key never reaches a browser, and no CORS or cross-site cookies are involved.
+A client refuses to start without `HUB_URL`, `HUB_API_KEY` and `SOURCE`, and names the
+ones that are missing.
 
-### One hub for several apps
+Nothing changes in the frontend, and the URLs stay the same. The browser keeps talking to
+its own backend with its own session cookie. For each request the client:
 
-A hub can serve more than one product. Each client key belongs to a **project** with its
-own prefix and board, so AutoRoster's dev, staging and production file `AUT-` tickets
-while a second app files `MHQ-` tickets on its own board, under one login and one bell.
+1. checks `CAN_ACCESS` against its own user. Someone refused, signed out, or without an
+   email address is answered locally and never reaches the hub: `devSupportConfig`
+   returns `enabled: false`, and everything else is refused with the usual message
+   ("Your account needs an email address to use dev tickets" for the last case);
+2. forwards the request to the hub with its key, the user's email, name and avatar,
+   whether the `TEAM` hook includes them, and the `CONTEXT_LABEL`;
+3. returns the hub's answer as it came. If the hub is down, answers with a 5xx or takes
+   longer than `HUB_TIMEOUT`, the browser gets HTTP 502 with "The ticket hub is
+   unreachable. Try again in a moment." and the detail goes to the log.
 
-```bash
-python manage.py devtickets_client add staging --project AUT
-python manage.py devtickets_client add production --project MHQ
-```
+The API key never reaches a browser, and no CORS or cross-site cookies are involved.
+Uploads are checked against `MAX_ATTACHMENT_MB` before they are sent, and downloads are
+streamed through with the hub's content type and disposition.
+
+On the hub, tickets, comments and changes made through a client carry its `source`. The
+ticket dialog shows it as "· from staging", and the digest email as "Through".
+
+A client does not send mail (`devtickets_notify` says so and exits) and does not hand out
+keys. Connect AI assistants to the hub: `register_tools` refuses in client mode.
+
+### Who can be assigned
+
+The assignee list is everyone the hub's `TEAM` hook returns, plus every person a client
+said is on *its* team. For a person linked to a hub user, the hub's own hooks decide and a
+client cannot override them.
 
 ### What a client key can do
 
 A client key can **act as any person it names**: the hub trusts the client to have
-checked who is signed in. Treat it like a database password:
+checked who is signed in. The hub's `CAN_ACCESS` applies only to the hub's own users. So
+treat a key like a database password:
 
 - Give **every environment, and every developer's laptop, its own key**, so revoking
   one affects nobody else.
 - Every ticket, comment and change records the **source** that made it.
-- A hub can set a key to read-only (`--read-only`). This suits a demo environment.
+- A read-only key (`--read-only`) can read the board but is refused every mutation and
+  upload. This suits a demo environment.
 
 ### The hub API
 
-The packages use it internally, but it is a plain, versioned JSON API, so other tools
-can use it too.
+The client uses it, and other tools can too. It exists only when `MODE = "hub"` (404
+otherwise) and is CSRF-exempt.
 
 ```
-Authorization: Bearer <client key>
-X-Dev-Tickets-Actor: {"email": "maya@example.com", "name": "Maya Okafor", "avatar": "https://…"}
+POST /devtickets/api/v1/graphql/                       the same GraphQL schema as the board
+POST /devtickets/api/v1/files/<APP-12>/                multipart, one or more "file" fields
+GET  /devtickets/api/v1/files/attachment/<id>/         ?download=1 to force a download
 
-GET    /devtickets/api/v1/board
-GET    /devtickets/api/v1/tickets/APP-12
-POST   /devtickets/api/v1/tickets
-PATCH  /devtickets/api/v1/tickets/APP-12
-POST   /devtickets/api/v1/tickets/APP-12/comments
-POST   /devtickets/api/v1/tickets/APP-12/attachments
-POST   /devtickets/api/v1/tickets/APP-12/links
-GET    /devtickets/api/v1/notifications
-POST   /devtickets/api/v1/notifications/read
-GET    /devtickets/api/v1/team
+Authorization:         Bearer <client key>
+X-Dev-Tickets-Actor:   {"email": "maya@example.com", "name": "Maya Okafor",
+                        "avatar": "https://…", "team": true}
+X-Dev-Tickets-Context: Acme%20Logistics            (CONTEXT_LABEL, UTF-8, percent-encoded)
 ```
 
-Breaking changes get a new path (`/api/v2/`). A hub serves the previous version for at
-least one major release, so you can upgrade the hub first and the clients afterwards.
+The actor header is required on every request, and so is its `email`.
+
+| Answer | When |
+| --- | --- |
+| `401 {"errors": [{"message": …}]}` | No key, an unknown key, or a revoked one. |
+| `400 {"errors": [{"message": …}]}` | The actor header is missing, is not JSON, or has no email. |
+| GraphQL error "This hub client's key is read-only." | A mutation with a read-only key. A read-only upload gets 403. |
+
+`last_used_at` is updated at most once a minute per key. Breaking changes will get a new
+path (`/api/v2/`).
+
+### Trying it locally
+
+```bash
+./playground/run.sh --client
+```
+
+This starts the playground hub (Django :8300, Nuxt :3300) and a client beside it (Django
+:8301 with `playground-client.sqlite3`, Nuxt :3301). On the first run it makes the
+`client-demo` key on the hub and keeps it in `playground/backend/.client-key`
+(gitignored). The client's people are Priya Shah, who exists only there, and a Maya who
+shares the hub Maya's address. Sign in at <http://localhost:3301/playground/>, file a
+ticket, and it appears on the hub's board at <http://localhost:3300> marked
+"from client-demo".
 
 ---
 
@@ -383,8 +431,8 @@ register_tools(my_mcp_server, prefix="tickets_")
 | `tickets_comment` | Reply on a ticket. |
 | `tickets_link` / `tickets_unlink` | Related, blocks, duplicate of. |
 
-In client mode the tools call the hub like everything else, so an assistant connected to
-staging sees the same board as one connected to production.
+In client mode `register_tools` refuses (`ImproperlyConfigured`): the tickets live on the
+hub, so connect assistants to the hub's MCP server. Every environment's tickets are there.
 
 ---
 
@@ -472,20 +520,49 @@ someone without access sees). Delete `playground/backend/playground.sqlite3` and
 
 ### Releasing
 
-Not built yet (it is on the roadmap). The plan:
+Write the notes under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) as you go, then:
 
 ```bash
-./scripts/release.sh 1.5.0     # bumps both packages, updates CHANGELOG, tags v1.5.0
-git push --follow-tags         # CI publishes to PyPI and npm
+scripts/release.sh 1.5.0 --dry-run   # every check, nothing written
+scripts/release.sh 1.5.0             # bump, changelog, commit "Release v1.5.0", tag v1.5.0
+git push --follow-tags               # this is what publishes
 ```
+
+`release.sh` refuses unless the tree is clean, you are on an up-to-date `main`, the
+version is newer than the current one, the tag is free and the changelog has notes. It
+then runs the same checks as CI. It writes the version into all four places that hold
+it (`python/pyproject.toml`, `dev_tickets/__init__.py`, `nuxt/package.json` and its
+lock), and `scripts/check-versions.sh` fails CI if they ever disagree. Nothing leaves
+your machine until you push, so a bad release is undone with
+`git tag -d v1.5.0 && git reset --hard HEAD~1`.
+
+Pushing the tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml):
+
+1. checks that the tag, both packages and the changelog agree;
+2. runs the full CI suite (Python 3.10 to 3.13, Django 5.1 and 5.2, lint, typecheck, build);
+3. builds and publishes `django-dev-tickets` to PyPI and `nuxt-dev-tickets` to npm, with
+   the README's links pinned to the tag so the screenshots show on both sites;
+4. makes the GitHub release from that version's changelog section.
+
+A version with a suffix (`1.5.0-rc.1`) is published as a pre-release: npm's `next` tag,
+never `latest`, so nobody upgrades to it by accident.
+
+**One-time setup before the first release:**
+
+- **PyPI:** add a [trusted publisher](https://docs.pypi.org/trusted-publishers/) for
+  `django-dev-tickets`: owner `unluckynelson`, repository `dev-tickets`, workflow
+  `release.yml`, environment `pypi`. No PyPI token is stored anywhere.
+- **npm:** create an automation token and save it as the repository secret `NPM_TOKEN`.
+- **GitHub:** create the environments `pypi` and `npm` (Settings → Environments). Add
+  yourself as a required reviewer if every publish should wait for your approval.
 
 ## Roadmap
 
 - [x] Extract the backend from AutoRoster into `python/`, with tests
 - [x] Extract the Nuxt layer into `nuxt/`
 - [x] Playground app
-- [ ] Hub / client mode and the v1 API
-- [ ] Release workflow (PyPI + npm on tag)
+- [x] Hub / client mode and the v1 API
+- [x] Release workflow (PyPI + npm on tag)
 - [ ] AutoRoster moved onto the package: `v1.0.0`
 - [ ] Projects: several apps on one hub
 - [ ] Webhooks (Slack, Discord) on state changes

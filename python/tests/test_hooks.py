@@ -121,11 +121,16 @@ def test_the_prefix_names_and_finds_tickets(settings, lead):
     assert states.parse_identifier("MHQ-1") == 1 and states.parse_identifier("APP-1") is None
 
 
-def test_only_standalone_mode_is_built_and_unknown_settings_are_caught(settings):
-    for mode in ("hub", "client"):
-        with_settings(settings, MODE=mode)
-        with pytest.raises(ImproperlyConfigured, match="not implemented"):
-            conf.check()
+def test_a_client_names_the_settings_it_lacks_and_unknown_settings_are_caught(settings):
+    with_settings(settings, MODE="hub")
+    conf.check()
+    with_settings(settings, MODE="client", HUB_URL="https://hub.example.com")
+    with pytest.raises(ImproperlyConfigured, match="HUB_API_KEY.*SOURCE") as caught:
+        conf.check()
+    assert "HUB_URL" not in str(caught.value)
+    with_settings(settings, MODE="client", HUB_URL="hub", HUB_API_KEY="k", SOURCE="s")
+    with pytest.raises(ImproperlyConfigured, match="http"):
+        conf.check()
     settings.DEV_TICKETS = {"PREFX": "x"}
     with pytest.raises(ImproperlyConfigured, match="PREFX"):
         conf.check()

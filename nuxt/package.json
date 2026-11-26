@@ -11,7 +11,13 @@
     "directory": "nuxt"
   },
   "homepage": "https://github.com/unluckynelson/dev-tickets#readme",
-  "keywords": ["nuxt", "nuxt-layer", "issue-tracker", "kanban", "primevue"],
+  "keywords": [
+    "nuxt",
+    "nuxt-layer",
+    "issue-tracker",
+    "kanban",
+    "primevue"
+  ],
   "files": [
     "nuxt.config.ts",
     "app/"
@@ -19,7 +25,7 @@
   "scripts": {
     "dev": "nuxi dev .playground",
     "build": "nuxi build .playground",
-    "prepare": "nuxi prepare .playground",
+    "dev:prepare": "nuxi prepare .playground",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "nuxi typecheck .playground"

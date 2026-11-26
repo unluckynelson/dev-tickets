@@ -2,7 +2,11 @@
 and the attachment view all call these, so each change is validated once, logged
 once as a `TicketEvent` and fanned out once to the people subscribed.
 
-Callers check access first (`permissions`); these functions assume a team member.
+Callers check access first (`actor.require`); these functions assume a team member.
+
+Whoever acts (`user`, `assignee`) may be given as a `Person`, an `actor.Actor` or a
+local user; each is turned into a `Person` here (`people.as_person`). An Actor also
+carries the hub client it came through, which is stamped on what it writes as `source`.
 """
 
 from __future__ import annotations
@@ -15,9 +19,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import Max, Q
 from django.utils import timezone
 
-from . import conf, notify, states
+from . import conf, notify, people, states
 from .models import (
     DevTicket,
+    Person,
     TicketAttachment,
     TicketComment,
     TicketEvent,
@@ -48,10 +53,12 @@ class _Keep:
 KEEP: Any = _Keep()
 
 
-def display_name(user) -> str:
-    if user is None:
+def display_name(who) -> str:
+    if who is None:
         return ""
-    return user.get_full_name() or user.get_username()
+    if isinstance(who, Person):
+        return who.display_name
+    return people.user_name(who)
 
 
 # --- lookups ------------------------------------------------------------------
@@ -74,36 +81,33 @@ def ticket_or_refuse(ref) -> DevTicket:
 
 
 def team_members():
-    """Who may hold a ticket: the `TEAM` hook's people, active ones only."""
-    return (
-        conf.hook("TEAM")()
-        .filter(is_active=True)
-        .order_by("first_name", "last_name", "pk")
-    )
+    """Who may hold a ticket (`people.team`): people, not users."""
+    return people.team()
 
 
-def member_or_refuse(user_id) -> Any:
-    found = team_members().filter(pk=user_id).first() if str(user_id).isdigit() else None
+def member_or_refuse(person_id) -> Person:
+    found = team_members().filter(pk=person_id).first() if str(person_id).isdigit() else None
     if found is None:
         raise TicketError("That person is not on the team.")
     return found
 
 
-def find_member(text: str | None):
-    """A team member by id, email, username or name, for the MCP tools and settings.
-    None when nobody matches or the match is ambiguous."""
+def find_member(text: str | None) -> Person | None:
+    """A team member by id, email, local username or name, for the MCP tools and
+    settings. None when nobody matches or the match is ambiguous."""
     text = (text or "").strip()
     if not text:
         return None
-    people = list(team_members())
+    wanted = text.lower()
+    members = list(team_members())
     for test in (
-        lambda u: str(u.pk) == text,
-        lambda u: (getattr(u, "email", "") or "").lower() == text.lower(),
-        lambda u: u.get_username().lower() == text.lower(),
-        lambda u: display_name(u).lower() == text.lower(),
-        lambda u: (getattr(u, "first_name", "") or "").lower() == text.lower(),
+        lambda p: str(p.pk) == text,
+        lambda p: (p.email or "") == wanted,
+        lambda p: p.user is not None and p.user.get_username().lower() == wanted,
+        lambda p: p.display_name.lower() == wanted,
+        lambda p: (p.name.split() or [""])[0].lower() == wanted,
     ):
-        hits = [u for u in people if test(u)]
+        hits = [p for p in members if test(p)]
         if len(hits) == 1:
             return hits[0]
         if hits:
@@ -111,7 +115,7 @@ def find_member(text: str | None):
     return None
 
 
-def default_assignee():
+def default_assignee() -> Person | None:
     return find_member(conf.get("DEFAULT_ASSIGNEE"))
 
 
@@ -123,27 +127,28 @@ def labels_or_refuse(ids: Iterable) -> list[TicketLabel]:
     return found
 
 
-def prefs_for(user) -> TicketPreferences:
-    obj, _ = TicketPreferences.objects.get_or_create(user=user)
+def prefs_for(who) -> TicketPreferences:
+    obj, _ = TicketPreferences.objects.get_or_create(person=people.as_person(who))
     return obj
 
 
 # --- events and subscriptions ---------------------------------------------------
 
 
-def subscribe(ticket: DevTicket, user, on: bool = True) -> None:
-    if user is None:
+def subscribe(ticket: DevTicket, who, on: bool = True) -> None:
+    person = people.as_person(who)
+    if person is None:
         return
     if on:
-        TicketSubscription.objects.get_or_create(ticket=ticket, user=user)
+        TicketSubscription.objects.get_or_create(ticket=ticket, person=person)
     else:
-        TicketSubscription.objects.filter(ticket=ticket, user=user).delete()
+        TicketSubscription.objects.filter(ticket=ticket, person=person).delete()
 
 
-def _record(ticket, actor, kind, old="", new="", comment=None) -> TicketEvent:
+def _record(ticket, who, kind, old="", new="", comment=None) -> TicketEvent:
     event = TicketEvent.objects.create(
-        ticket=ticket, actor=actor, kind=kind, old=str(old)[:300], new=str(new)[:300],
-        comment=comment,
+        ticket=ticket, actor=people.as_person(who), kind=kind, old=str(old)[:300],
+        new=str(new)[:300], comment=comment, source=people.source_of(who),
     )  # fmt: skip
     notify.fan_out(event)
     return event
@@ -202,6 +207,8 @@ def create_ticket(
     description = _clean_text(description)
     _check_priority(priority)
     _check_state(state)
+    who, user = user, people.as_person(user)
+    assignee = people.as_person(assignee)
     for _attempt in range(5):
         try:
             with transaction.atomic():
@@ -209,7 +216,7 @@ def create_ticket(
                     number=_next_number(), title=title, description=description,
                     priority=priority, state=state, assignee=assignee, reported_by=user,
                     page_url=(page_url or "")[:MAX_URL],
-                    context_label=(context_label or "")[:150],
+                    context_label=(context_label or "")[:150], source=people.source_of(who),
                     closed_at=timezone.now() if state in states.CLOSED_KEYS else None,
                 )  # fmt: skip
                 break
@@ -223,7 +230,7 @@ def create_ticket(
             ticket.labels.set(labels)
         subscribe(ticket, user)
         subscribe(ticket, assignee)
-        _record(ticket, user, Kind.CREATED, new=ticket.title)
+        _record(ticket, who, Kind.CREATED, new=ticket.title)
     return ticket
 
 
@@ -240,6 +247,8 @@ def update_ticket(
 ) -> DevTicket:
     """Change any of the given fields; KEEP leaves one alone. Each real change is an
     event, so a save that changes nothing tells nobody anything."""
+    if assignee is not KEEP:
+        assignee = people.as_person(assignee)
     with transaction.atomic():
         ticket = DevTicket.objects.select_for_update().get(pk=ticket.pk)
         events: list[tuple] = []
@@ -299,7 +308,10 @@ def add_comment(ticket: DevTicket, user, body: str) -> TicketComment:
     if not body:
         raise TicketError("A comment cannot be empty.")
     with transaction.atomic():
-        comment = TicketComment.objects.create(ticket=ticket, author=user, body=body)
+        comment = TicketComment.objects.create(
+            ticket=ticket, author=people.as_person(user), body=body,
+            source=people.source_of(user),
+        )  # fmt: skip
         subscribe(ticket, user)
         _record(ticket, user, Kind.COMMENT, new=body[:300], comment=comment)
         DevTicket.objects.filter(pk=ticket.pk).update(updated_at=timezone.now())
@@ -314,7 +326,8 @@ def _own_comment(comment_id, user) -> TicketComment:
     )
     if comment is None:
         raise TicketError("No such comment.")
-    if comment.author_id != user.pk:
+    person = people.as_person(user)
+    if person is None or comment.author_id != person.pk:
         raise TicketError("Only its author can change a comment.")
     return comment
 
@@ -382,16 +395,20 @@ def max_attachment_bytes() -> int:
     return int(conf.get("MAX_ATTACHMENT_MB")) * 1024 * 1024
 
 
-def add_attachment(ticket: DevTicket, user, upload) -> TicketAttachment:
+def check_upload_size(upload) -> None:
     if upload.size > max_attachment_bytes():
         raise TicketError(
             f"That file is too large; the limit is {conf.get('MAX_ATTACHMENT_MB')} MB."
         )
+
+
+def add_attachment(ticket: DevTicket, user, upload) -> TicketAttachment:
+    check_upload_size(upload)
     name = (getattr(upload, "name", "") or "file")[-200:]
     with transaction.atomic():
         attachment = TicketAttachment(
             ticket=ticket, name=name, content_type=(upload.content_type or "")[:100],
-            size=upload.size, uploaded_by=user,
+            size=upload.size, uploaded_by=people.as_person(user),
         )  # fmt: skip
         attachment.file.save(name, upload, save=False)
         attachment.save()

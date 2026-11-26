@@ -122,7 +122,9 @@ def ticket_detail(t: DevTicket) -> dict:
             for e in t.events.select_related("actor").exclude(kind="comment")
         ],
         "links": links,
-        "followers": sorted(display_name(s.user) for s in t.subscriptions.select_related("user")),
+        "followers": sorted(
+            display_name(s.person) for s in t.subscriptions.select_related("person")
+        ),
         "attachments": [a.name for a in t.attachments.all()],
     }
 
@@ -367,7 +369,18 @@ def register_tools(
     register: Callable[[str, str, dict, Callable[..., dict]], Any], prefix: str = "tickets_"
 ) -> list[str]:
     """Hand every tool to the host's `register(name, description, input_schema, handler)`.
-    Returns the names registered."""
+    Returns the names registered.
+
+    Not in client mode: tickets live on the hub, so connect assistants to the hub."""
+    from django.core.exceptions import ImproperlyConfigured
+
+    from . import conf
+
+    if conf.mode() == "client":
+        raise ImproperlyConfigured(
+            "dev_tickets is in client mode: tickets live on the hub. "
+            "Connect AI assistants to the hub's MCP server instead."
+        )
     names = []
     for tool in TOOLS:
         name = f"{prefix}{tool.name}"

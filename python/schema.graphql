@@ -11,6 +11,7 @@ type BoardIssueType {
   reporterId: String!
   reporterName: String!
   contextLabel: String!
+  source: String!
   labels: [TicketLabelType!]!
   commentCount: Int!
   coverId: String
@@ -60,6 +61,7 @@ type IssueCommentType {
   createdAt: DateTime!
   editedAt: DateTime
   mine: Boolean!
+  source: String!
 }
 
 type IssueDetailType {
@@ -77,6 +79,7 @@ type IssueDetailType {
   reporterName: String!
   pageUrl: String!
   contextLabel: String!
+  source: String!
   labels: [TicketLabelType!]!
   comments: [IssueCommentType!]!
   events: [TicketEventType!]!

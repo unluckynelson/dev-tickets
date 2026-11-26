@@ -74,6 +74,8 @@ class BoardIssueType:
     reporter_id: str
     reporter_name: str
     context_label: str
+    # The hub client it was filed through ("staging"); "" when filed here.
+    source: str
     labels: list[TicketLabelType]
     comment_count: int
     cover_id: str | None  # the first image attachment, shown on the card
@@ -104,6 +106,7 @@ class IssueCommentType:
     created_at: dt.datetime
     edited_at: dt.datetime | None
     mine: bool
+    source: str
 
 
 @strawberry.type
@@ -159,6 +162,7 @@ class IssueDetailType:
     reporter_name: str
     page_url: str
     context_label: str
+    source: str
     labels: list[TicketLabelType]
     comments: list[IssueCommentType]
     events: list[TicketEventType]
@@ -193,8 +197,10 @@ def label_type(label) -> TicketLabelType:
     return TicketLabelType(id=str(label.pk), name=label.name, color=label.color)
 
 
-def member_type(user) -> TicketMemberType:
-    return TicketMemberType(id=str(user.pk), name=display_name(user), email=user.email or "")
+def member_type(person) -> TicketMemberType:
+    return TicketMemberType(
+        id=str(person.pk), name=display_name(person), email=person.email or ""
+    )
 
 
 def ticket_ref(ticket: DevTicket) -> TicketRefType:
@@ -239,6 +245,7 @@ def issue_card(ticket: DevTicket) -> BoardIssueType:
         reporter_id=str(ticket.reported_by_id or ""),
         reporter_name=display_name(ticket.reported_by),
         context_label=ticket.context_label,
+        source=ticket.source,
         labels=[label_type(lbl) for lbl in ticket.labels.all()],
         comment_count=count,
         cover_id=str(ticket.cover) if getattr(ticket, "cover", None) else None,
@@ -253,6 +260,7 @@ def card_for(ticket: DevTicket) -> BoardIssueType:
 
 
 def comment_type(comment: TicketComment, viewer) -> IssueCommentType:
+    """`viewer` is the reading Person: `mine` is whether they wrote it."""
     return IssueCommentType(
         id=str(comment.pk),
         body=comment.body,
@@ -261,6 +269,7 @@ def comment_type(comment: TicketComment, viewer) -> IssueCommentType:
         created_at=comment.created_at,
         edited_at=comment.edited_at,
         mine=comment.author_id is not None and comment.author_id == viewer.pk,
+        source=comment.source,
     )
 
 
@@ -295,7 +304,7 @@ def issue_detail(ticket: DevTicket, viewer) -> IssueDetailType:
     ticket = DevTicket.objects.select_related("assignee", "reported_by").get(pk=ticket.pk)
     comments = ticket.comments.select_related("author")
     events = ticket.events.select_related("actor").exclude(kind="comment")
-    subscribers = [s.user for s in ticket.subscriptions.select_related("user")]
+    subscribers = [s.person for s in ticket.subscriptions.select_related("person")]
     return IssueDetailType(
         id=ticket.identifier,
         identifier=ticket.identifier,
@@ -311,6 +320,7 @@ def issue_detail(ticket: DevTicket, viewer) -> IssueDetailType:
         reporter_name=display_name(ticket.reported_by),
         page_url=ticket.page_url,
         context_label=ticket.context_label,
+        source=ticket.source,
         labels=[label_type(lbl) for lbl in ticket.labels.all()],
         comments=[comment_type(c, viewer) for c in comments],
         events=[
@@ -336,7 +346,7 @@ def issue_detail(ticket: DevTicket, viewer) -> IssueDetailType:
             for a in ticket.attachments.select_related("uploaded_by")
         ],
         subscriber_names=sorted(display_name(u) for u in subscribers),
-        subscribed=any(u.pk == viewer.pk for u in subscribers),
+        subscribed=any(p.pk == viewer.pk for p in subscribers),
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
     )

@@ -34,7 +34,7 @@ const REF = 'id identifier title stateName stateType'
 
 const DETAIL_FIELDS = `
   id identifier title description priority stateId stateName stateType
-  assigneeId assigneeName reporterId reporterName pageUrl contextLabel
+  assigneeId assigneeName reporterId reporterName pageUrl contextLabel source
   subscriberNames subscribed createdAt updatedAt
   labels { id name color }
   comments { id body authorId authorName createdAt editedAt mine }

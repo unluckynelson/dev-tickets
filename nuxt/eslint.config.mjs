@@ -9,7 +9,8 @@ export default createConfigForNuxt({
   features: { stylistic: true },
   dirs: { src: ['./app', './.playground/app'] },
 }).override('nuxt/rules', {}).append({
-  ignores: ['.playground/.nuxt/**', '.playground/.output/**', '.nuxt/**', '.output/**'],
+  // .nuxt-<port>: the build dir of a second playground dev server (run.sh --client).
+  ignores: ['.playground/.nuxt/**', '.playground/.nuxt-*/**', '.playground/.output/**', '.nuxt/**', '.output/**'],
 }, {
   rules: {
     // PrimeVue components are auto-imported and single-word by design.

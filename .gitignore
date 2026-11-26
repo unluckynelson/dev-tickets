@@ -6,6 +6,9 @@ dist/
 build/
 node_modules/
 .nuxt/
+.nuxt-*/
 .output/
 .env
 .env.*
+.ruff_cache/
+.pytest_cache/

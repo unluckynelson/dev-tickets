@@ -1,5 +1,6 @@
-"""Read resolvers. Every one checks `CAN_ACCESS`, except the config query, which
-answers `enabled: false` instead so a host layout can ask without guarding."""
+"""Read resolvers. Every one asks for the request's actor (`actor.require`), except
+the config query, which answers `enabled: false` instead so a host layout can ask
+without guarding."""
 
 from __future__ import annotations
 
@@ -7,10 +8,10 @@ import strawberry
 from django.db.models import Q
 
 from . import conf, service, states
+from .actor import actor_for, require
 from .digest import board_url
 from .models import DevTicket, TicketLabel, TicketNotification
 from .notify import summary
-from .permissions import access_required, can_access
 from .types import (
     BoardLaneType,
     BoardType,
@@ -30,12 +31,12 @@ from .types import (
 )
 
 
-def _user(info: strawberry.Info):
-    return info.context.request.user
+def _person(info: strawberry.Info):
+    return require(info.context.request).person
 
 
 def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
-    user = _user(info)
+    actor = actor_for(info.context.request)
     common = {
         "prefix": states.prefix(),
         "board_url": board_url(),
@@ -46,7 +47,7 @@ def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
         ],
         "priorities": [TicketPriorityType(value=v, label=lbl) for v, lbl in states.PRIORITIES],
     }
-    if not can_access(user):
+    if actor.person is None:
         return DevSupportConfigType(
             enabled=False, labels=[], assignees=[], default_assignee_id=None,
             email_updates=False, **common,
@@ -57,7 +58,7 @@ def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
         labels=[label_type(lbl) for lbl in TicketLabel.objects.all()],
         assignees=[member_type(u) for u in service.team_members()],
         default_assignee_id=str(default.pk) if default else None,
-        email_updates=service.prefs_for(user).email_updates,
+        email_updates=service.prefs_for(actor.person).email_updates,
         **common,
     )
 
@@ -65,7 +66,7 @@ def dev_support_config(info: strawberry.Info) -> DevSupportConfigType:
 def dev_ticket_board(info: strawberry.Info) -> BoardType:
     """Every ticket in an on-board state, lane by lane, newest arrival on top.
     Canceled and duplicate tickets are off the board."""
-    access_required(_user(info))
+    _person(info)
     on_board = [s for s in states.STATES if s.on_board]
     tickets = (
         card_queryset()
@@ -85,14 +86,14 @@ def dev_ticket_board(info: strawberry.Info) -> BoardType:
 
 
 def dev_ticket_detail(info: strawberry.Info, id: str) -> IssueDetailType | None:
-    user = access_required(_user(info))
+    person = _person(info)
     ticket = service.find_ticket(id)
-    return issue_detail(ticket, user) if ticket else None
+    return issue_detail(ticket, person) if ticket else None
 
 
 def dev_ticket_search(info: strawberry.Info, query: str, limit: int = 10) -> list[TicketRefType]:
     """Tickets by identifier or title words, closed ones included -- for linking."""
-    access_required(_user(info))
+    _person(info)
     rows = DevTicket.objects.all()
     number = states.parse_identifier(query)
     if number is not None:
@@ -105,9 +106,9 @@ def dev_ticket_search(info: strawberry.Info, query: str, limit: int = 10) -> lis
 
 def dev_tickets(info: strawberry.Info, limit: int = 30) -> DevTicketFeedType:
     """The bell: what happened on tickets you follow, by someone else, newest first."""
-    user = access_required(_user(info))
+    person = _person(info)
     rows = (
-        TicketNotification.objects.filter(user=user)
+        TicketNotification.objects.filter(person=person)
         .select_related("event__ticket", "event__actor")
         .order_by("-created_at", "-pk")[: max(1, min(limit, 100))]
     )
@@ -122,8 +123,8 @@ def dev_tickets(info: strawberry.Info, limit: int = 30) -> DevTicketFeedType:
             )  # fmt: skip
             for n in rows
         ],
-        unread_count=TicketNotification.objects.filter(user=user, read_at__isnull=True).count(),
-        email_updates=service.prefs_for(user).email_updates,
+        unread_count=TicketNotification.objects.filter(person=person, read_at__isnull=True).count(),
+        email_updates=service.prefs_for(person).email_updates,
     )
 
 

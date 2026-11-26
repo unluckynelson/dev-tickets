@@ -87,6 +87,8 @@ export interface IssueDetail {
   reporterName: string
   pageUrl: string
   contextLabel: string
+  /** The environment it was filed through, when this board is a hub ("staging"); "" if here. */
+  source: string
   labels: TicketLabel[]
   comments: IssueComment[]
   events: TicketEvent[]

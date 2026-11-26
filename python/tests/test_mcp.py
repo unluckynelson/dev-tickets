@@ -3,7 +3,7 @@
 import pytest
 from django.core.exceptions import PermissionDenied
 
-from dev_tickets import service
+from dev_tickets import people, service
 from dev_tickets.mcp import TOOLS, register_tools
 from dev_tickets.models import TicketNotification
 
@@ -50,7 +50,7 @@ def test_an_assistant_files_and_updates_like_a_person_and_people_hear(server, le
     updated = server["tickets_update"](dev, ticket="APP-1", state="in_progress", assignee="none")
     assert updated["state"] == "in_progress" and updated["assignee"] is None
     # The assignee was told about the filing and the moves, as with any change.
-    assert TicketNotification.objects.filter(user=lead).count() == 3
+    assert TicketNotification.objects.filter(person=people.for_user(lead)).count() == 3
 
 
 def test_refusals_are_worded_for_the_model(server, lead):

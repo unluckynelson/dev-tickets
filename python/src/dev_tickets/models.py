@@ -26,6 +26,72 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class Person(TimeStampedModel):
+    """Someone who reports, holds, follows or comments on tickets.
+
+    Not the auth user: a hub serves several environments, and user 7 on staging is
+    not user 7 in production, so a foreign key to the user model cannot say who
+    somebody is. People are known by email instead, stored lower-cased so two
+    spellings are one person. A person met through this install's own login is
+    linked to that user (`user`); one met only through a client's API key is not.
+    A local user and a remote actor with the same email are the same person.
+
+    `email` is null for a local user who has none, so several of those can exist.
+    """
+
+    email = models.EmailField(max_length=254, unique=True, null=True, blank=True)
+    name = models.CharField(max_length=200, blank=True)
+    avatar_url = models.URLField(max_length=1000, blank=True)
+    user = models.OneToOneField(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="dev_tickets_person"
+    )
+    # Can be assigned a ticket. For a linked person this follows the `TEAM` hook; for
+    # a remote one, what its client last said.
+    is_team = models.BooleanField(default=False)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name", "email", "pk"]
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower() or None
+        super().save(*args, **kwargs)
+
+    @property
+    def display_name(self) -> str:
+        return self.name or self.email or ""
+
+    @property
+    def is_active(self) -> bool:
+        return self.user is None or self.user.is_active
+
+    def __str__(self):
+        return self.display_name or f"Person {self.pk}"
+
+
+class HubClient(TimeStampedModel):
+    """An environment allowed to use this hub's API, with its own key.
+
+    Only the key's SHA-256 is kept; `key_prefix` (its first 8 characters) is there
+    so a list of clients can show which key is which without storing the key.
+    `source` is the label stamped on everything done through it ("staging").
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    source = models.CharField(max_length=60)
+    key_hash = models.CharField(max_length=64, unique=True)
+    key_prefix = models.CharField(max_length=8)
+    read_only = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class TicketLabel(TimeStampedModel):
     name = models.CharField(max_length=60, unique=True)
     color = models.CharField(max_length=9, default="#888888")
@@ -50,14 +116,14 @@ class DevTicket(TimeStampedModel):
     # Who raised it -- the person, not whichever account or key filed it. An import
     # from another tracker sets this to the real reporter.
     reported_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="dev_tickets"
+        Person, on_delete=models.SET_NULL, null=True, blank=True, related_name="reported_tickets"
     )
     assignee = models.ForeignKey(
-        User,
+        Person,
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="assigned_dev_tickets",
+        related_name="assigned_tickets",
     )
 
     # When the state last moved. The board orders a lane by it (newest arrival on
@@ -68,6 +134,8 @@ class DevTicket(TimeStampedModel):
     # Where the reporter was standing when they logged it.
     page_url = models.CharField(max_length=1000, blank=True)
     context_label = models.CharField(max_length=150, blank=True)
+    # Which hub client it was filed through ("staging"); blank when filed here.
+    source = models.CharField(max_length=60, blank=True)
 
     # Provenance for a ticket imported from another tracker. Null for every ticket
     # born here; unique so a re-run import cannot duplicate one.
@@ -99,9 +167,10 @@ class DevTicket(TimeStampedModel):
 class TicketComment(TimeStampedModel):
     ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        Person, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     body = models.TextField()  # markdown
+    source = models.CharField(max_length=60, blank=True)
     edited_at = models.DateTimeField(null=True, blank=True)
     external_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
 
@@ -138,14 +207,12 @@ class TicketSubscription(TimeStampedModel):
     them; anyone may subscribe or leave by hand."""
 
     ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="subscriptions")
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="dev_ticket_subscriptions"
-    )
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="subscriptions")
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["ticket", "user"], name="dev_tickets_unique_subscription"
+                fields=["ticket", "person"], name="dev_tickets_unique_subscription"
             ),
         ]
 
@@ -171,9 +238,10 @@ class TicketEvent(TimeStampedModel):
 
     ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="events")
     actor = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        Person, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     kind = models.CharField(max_length=12, choices=Kind.choices)
+    source = models.CharField(max_length=60, blank=True)
     old = models.CharField(max_length=300, blank=True)
     new = models.CharField(max_length=300, blank=True)
     comment = models.ForeignKey(
@@ -192,9 +260,7 @@ class TicketNotification(models.Model):
     out, so a person with email off is not reconsidered every minute.
     """
 
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="dev_ticket_notifications"
-    )
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="notifications")
     event = models.ForeignKey(TicketEvent, on_delete=models.CASCADE, related_name="notifications")
     created_at = models.DateTimeField(default=timezone.now)
     read_at = models.DateTimeField(null=True, blank=True)
@@ -204,23 +270,25 @@ class TicketNotification(models.Model):
         ordering = ["-created_at", "-pk"]
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "event"], name="dev_tickets_unique_notification"
+                fields=["person", "event"], name="dev_tickets_unique_notification"
             ),
         ]
-        indexes = [models.Index(fields=["user", "read_at"], name="dev_tickets_notif_unread_idx")]
+        indexes = [
+            models.Index(fields=["person", "read_at"], name="dev_tickets_notif_unread_idx")
+        ]
 
     def __str__(self):
-        return f"{self.event} for {self.user_id}"
+        return f"{self.event} for {self.person_id}"
 
 
 class TicketPreferences(models.Model):
     """Per person. Only email for now; the bell is always on."""
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="dev_ticket_prefs")
+    person = models.OneToOneField(Person, on_delete=models.CASCADE, related_name="prefs")
     email_updates = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"Ticket preferences of {self.user_id}"
+        return f"Ticket preferences of {self.person_id}"
 
 
 def _attachment_path(attachment: TicketAttachment, filename: str) -> str:
@@ -246,7 +314,7 @@ class TicketAttachment(TimeStampedModel):
     content_type = models.CharField(max_length=100, blank=True)
     size = models.PositiveIntegerField(default=0)
     uploaded_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        Person, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
 
     class Meta:

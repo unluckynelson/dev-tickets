@@ -80,8 +80,8 @@ def markdown_html(source: str) -> SafeString:
     return mark_safe(_OPEN_TAG.sub(lambda m: f'<{m[1]}{m[2] or ""} style="{_STYLE[m[1]]}">', clean))
 
 
-def _name(user) -> str:
-    return (user.get_full_name() or user.get_username()) if user else ""
+def _name(person) -> str:
+    return person.display_name if person else ""
 
 
 def _change(event: TicketEvent) -> dict:
@@ -112,6 +112,7 @@ def items(rows) -> list[dict]:
                     ("Reported by", _name(t.reported_by)),
                     ("Labels", ", ".join(lb.name for lb in t.labels.all())),
                     ("Filed from", t.context_label),
+                    ("Through", t.source),
                     ("Page", t.page_url),
                 ],
                 "description": markdown_html(t.description) if t.description.strip() else None,
