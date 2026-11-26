@@ -37,7 +37,7 @@ Dev Tickets stays inside the app:
 
 ## Features
 
-| | |
+| Feature | What it does |
 | --- | --- |
 | **Kanban board** | Triage → Backlog → Todo → In Progress → Done; Canceled and Duplicate sit off the board. Drag cards between lanes. Search, filter by reporter / assignee / priority / label, and choose the sort order. |
 | **Deep links** | The open ticket is part of the URL (`/admin/dev-tickets/APP-12`), so a link pastes straight into chat. |
@@ -202,7 +202,7 @@ def current_company(request) -> str:
 
 All settings live in one `DEV_TICKETS` dict.
 
-| Setting | Default | |
+| Setting | Default | What it does |
 | --- | --- | --- |
 | `MODE` | `"standalone"` | `standalone`, `hub` or `client`. See [below](#one-board-for-every-environment). |
 | `PREFIX` | `"DEV"` | Identifier prefix: `DEV-12`. |
@@ -221,7 +221,7 @@ All settings live in one `DEV_TICKETS` dict.
 
 Frontend (`runtimeConfig.public.devTickets`):
 
-| Key | |
+| Key | What it does |
 | --- | --- |
 | `endpoint` | Your backend's `/devtickets/graphql/`. In every mode, the browser talks only to its own backend. |
 | `csrfUrl` | Optional. A URL to `GET` once so Django issues the CSRF cookie. |
@@ -369,7 +369,7 @@ from dev_tickets.mcp import register_tools
 register_tools(my_mcp_server, prefix="tickets_")
 ```
 
-| Tool | |
+| Tool | What it does |
 | --- | --- |
 | `tickets_team` | Who can hold a ticket, and the states, priorities and labels. |
 | `tickets_list` | Search and filter. |
