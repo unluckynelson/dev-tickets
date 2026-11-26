@@ -16,6 +16,8 @@ versions follow [Semantic Versioning](https://semver.org).
   stored in the database (`TrackerSettings`); `DEV_TICKETS` still wins and shows as
   locked. A client connection is tried before it is saved. As a hub, keys for other
   environments are made, rotated and revoked there too. New `CAN_CONFIGURE` hook.
+- Assistant tools are registered without touching the database (hosts register at import);
+  a client mode chosen in Settings refuses them when they run.
 - `./playground/run.sh --open`: a second install with no mode set, to try setting it up
   from Settings.
 

@@ -163,3 +163,17 @@ def test_a_hub_hands_out_keys_that_work_until_revoked(lead):
 
     post(c, f"clients/{made['clients'][0]['id']}/", {"revoke": True})
     assert api_gql(key, "{ devSupportConfig { prefix } }", who=actor(), status=401)["errors"]
+
+
+def test_assistant_tools_refuse_once_settings_make_this_a_client(lead):
+    from dev_tickets.mcp import register_tools
+
+    tools = {}
+    register_tools(lambda name, _d, _s, handler: tools.__setitem__(name, handler))
+    assert tools["tickets_team"](lead)["states"]
+    row = TrackerSettings.load()
+    row.mode, row.hub_url, row.hub_api_key, row.source = "client", "https://hub", "k", "x"
+    row.save()
+    conf.clear_cache()
+    with pytest.raises(TicketError, match="hub"):
+        tools["tickets_team"](lead)

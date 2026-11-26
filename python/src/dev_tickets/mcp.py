@@ -15,6 +15,7 @@ for the model; a host should return it to the model as a tool error.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -366,25 +367,44 @@ TOOLS: tuple[Tool, ...] = (
 )
 
 
+CLIENT_REFUSAL = (
+    "dev_tickets is in client mode: tickets live on the hub. "
+    "Connect AI assistants to the hub's MCP server instead."
+)
+
+
+def _on_hub(handler: Callable[..., dict]) -> Callable[..., dict]:
+    """Refuse at call time once Settings has made this install a client."""
+
+    @functools.wraps(handler)
+    def run(*args, **kwargs) -> dict:
+        from . import conf
+
+        if conf.mode() == "client":
+            raise TicketError(CLIENT_REFUSAL)
+        return handler(*args, **kwargs)
+
+    return run
+
+
 def register_tools(
     register: Callable[[str, str, dict, Callable[..., dict]], Any], prefix: str = "tickets_"
 ) -> list[str]:
     """Hand every tool to the host's `register(name, description, input_schema, handler)`.
     Returns the names registered.
 
-    Not in client mode: tickets live on the hub, so connect assistants to the hub."""
+    Not in client mode: tickets live on the hub, so connect assistants to the hub. Hosts
+    register at import, before a database may be reached, so only a mode fixed in
+    `DEV_TICKETS` is refused here; one chosen in Settings is refused when a tool runs."""
     from django.core.exceptions import ImproperlyConfigured
 
     from . import conf
 
-    if conf.mode() == "client":
-        raise ImproperlyConfigured(
-            "dev_tickets is in client mode: tickets live on the hub. "
-            "Connect AI assistants to the hub's MCP server instead."
-        )
+    if conf.locked("MODE") and conf.mode() == "client":
+        raise ImproperlyConfigured(CLIENT_REFUSAL)
     names = []
     for tool in TOOLS:
         name = f"{prefix}{tool.name}"
-        register(name, tool.description, tool.input_schema, tool.handler)
+        register(name, tool.description, tool.input_schema, _on_hub(tool.handler))
         names.append(name)
     return names
