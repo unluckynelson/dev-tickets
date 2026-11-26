@@ -1,0 +1,60 @@
+{
+  "name": "nuxt-dev-tickets",
+  "version": "0.1.0",
+  "description": "An issue tracker that lives inside your app: kanban board, report widget and notification bell, as a Nuxt layer.",
+  "type": "module",
+  "main": "./nuxt.config.ts",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/unluckynelson/dev-tickets.git",
+    "directory": "nuxt"
+  },
+  "homepage": "https://github.com/unluckynelson/dev-tickets#readme",
+  "keywords": ["nuxt", "nuxt-layer", "issue-tracker", "kanban", "primevue"],
+  "files": [
+    "nuxt.config.ts",
+    "app/"
+  ],
+  "scripts": {
+    "dev": "nuxi dev .playground",
+    "build": "nuxi build .playground",
+    "prepare": "nuxi prepare .playground",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "nuxi typecheck .playground"
+  },
+  "dependencies": {
+    "@tiptap/extensions": "^3.30.3",
+    "@tiptap/pm": "^3.30.3",
+    "@tiptap/starter-kit": "^3.30.3",
+    "@tiptap/vue-3": "^3.30.3",
+    "dompurify": "^3.4.14",
+    "marked": "^18.0.11",
+    "modern-screenshot": "4.7.0",
+    "primeicons": "^7.0.0",
+    "turndown": "^7.2.4"
+  },
+  "peerDependencies": {
+    "@primevue/nuxt-module": "^4.5.5",
+    "nuxt": "^4.0.0",
+    "primevue": "^4.5.5",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "^1.17.0",
+    "@primeuix/themes": "^2.0.3",
+    "@primevue/nuxt-module": "^4.5.5",
+    "@types/turndown": "^5.0.6",
+    "eslint": "^9.39.5",
+    "nuxt": "^4.4.8",
+    "primevue": "^4.5.5",
+    "typescript": "^6.0.3",
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0",
+    "vue-tsc": "^3.3.11"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

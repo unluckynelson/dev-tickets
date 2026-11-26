@@ -1,0 +1,253 @@
+"""Dev tickets: a product team's issue tracker, kept in the app it tracks.
+
+Tickets are global to the install, not owned by a tenant or workspace: they are
+tooling for the people building the product, gated by `CAN_ACCESS`. Where a host
+app has tenants, the one a report was filed *from* is kept as `context_label`, a
+denormalised name, so it reads correctly after the tenant is renamed or removed.
+"""
+
+from __future__ import annotations
+
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+
+from . import conf, states
+from .states import CLOSED_KEYS
+
+User = settings.AUTH_USER_MODEL
+
+
+class TimeStampedModel(models.Model):
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        abstract = True
+
+
+class TicketLabel(TimeStampedModel):
+    name = models.CharField(max_length=60, unique=True)
+    color = models.CharField(max_length=9, default="#888888")
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class DevTicket(TimeStampedModel):
+    """One ticket. `number` is the N in PREFIX-N, unique and never reused."""
+
+    number = models.PositiveIntegerField(unique=True)
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)  # markdown
+    state = models.CharField(max_length=20, choices=states.CHOICES, default=states.TRIAGE)
+    priority = models.PositiveSmallIntegerField(default=3)  # see states.PRIORITIES
+    labels = models.ManyToManyField(TicketLabel, blank=True, related_name="tickets")
+
+    # Who raised it -- the person, not whichever account or key filed it. An import
+    # from another tracker sets this to the real reporter.
+    reported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="dev_tickets"
+    )
+    assignee = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_dev_tickets",
+    )
+
+    # When the state last moved. The board orders a lane by it (newest arrival on
+    # top) and reports read cycle time off it with `closed_at`.
+    state_changed_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    # Where the reporter was standing when they logged it.
+    page_url = models.CharField(max_length=1000, blank=True)
+    context_label = models.CharField(max_length=150, blank=True)
+
+    # Provenance for a ticket imported from another tracker. Null for every ticket
+    # born here; unique so a re-run import cannot duplicate one.
+    external_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def identifier(self) -> str:
+        return states.identifier(self.number)
+
+    @property
+    def is_closed(self) -> bool:
+        return self.state in CLOSED_KEYS
+
+    @property
+    def state_name(self) -> str:
+        return states.state_name(self.state)
+
+    @property
+    def state_type(self) -> str:
+        return states.state_type(self.state)
+
+    def __str__(self):
+        return f"{self.identifier} {self.title}"
+
+
+class TicketComment(TimeStampedModel):
+    ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    body = models.TextField()  # markdown
+    edited_at = models.DateTimeField(null=True, blank=True)
+    external_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self):
+        return f"Comment on {self.ticket.identifier}"
+
+
+class TicketRelation(TimeStampedModel):
+    """`ticket` relates to / blocks / duplicates `other`. Stored once, read both ways."""
+
+    ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="relations_out")
+    other = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="relations_in")
+    kind = models.CharField(
+        max_length=12, choices=[(k, k) for k in states.RELATION_KINDS], default=states.RELATED
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ticket", "other", "kind"], name="dev_tickets_unique_relation"
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(ticket=models.F("other")),
+                name="dev_tickets_relation_not_self",
+            ),
+        ]
+
+
+class TicketSubscription(TimeStampedModel):
+    """Who hears about a ticket. Reporter, assignee and commenters are added for
+    them; anyone may subscribe or leave by hand."""
+
+    ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="subscriptions")
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="dev_ticket_subscriptions"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ticket", "user"], name="dev_tickets_unique_subscription"
+            ),
+        ]
+
+
+class TicketEvent(TimeStampedModel):
+    """One change to a ticket: its history, and what notifications point at.
+
+    `old`/`new` are display text (a state's name, a person's name), frozen as they
+    read when it happened, so renaming a label does not rewrite the history.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        STATE = "state", "State"
+        ASSIGNEE = "assignee", "Assignee"
+        PRIORITY = "priority", "Priority"
+        TITLE = "title", "Title"
+        DESCRIPTION = "description", "Description"
+        LABELS = "labels", "Labels"
+        RELATION = "relation", "Relation"
+        COMMENT = "comment", "Comment"
+        ATTACHMENT = "attachment", "Attachment"
+
+    ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="events")
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    old = models.CharField(max_length=300, blank=True)
+    new = models.CharField(max_length=300, blank=True)
+    comment = models.ForeignKey(
+        TicketComment, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+
+class TicketNotification(models.Model):
+    """One event, for one person: the bell's row, and the email's.
+
+    Made for every subscriber but the actor (`notify.fan_out`). `read_at` clears it
+    from the badge; `emailed_at` is set by the delivery run whether or not mail went
+    out, so a person with email off is not reconsidered every minute.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="dev_ticket_notifications"
+    )
+    event = models.ForeignKey(TicketEvent, on_delete=models.CASCADE, related_name="notifications")
+    created_at = models.DateTimeField(default=timezone.now)
+    read_at = models.DateTimeField(null=True, blank=True)
+    emailed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "event"], name="dev_tickets_unique_notification"
+            ),
+        ]
+        indexes = [models.Index(fields=["user", "read_at"], name="dev_tickets_notif_unread_idx")]
+
+    def __str__(self):
+        return f"{self.event} for {self.user_id}"
+
+
+class TicketPreferences(models.Model):
+    """Per person. Only email for now; the bell is always on."""
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="dev_ticket_prefs")
+    email_updates = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"Ticket preferences of {self.user_id}"
+
+
+def _attachment_path(attachment: TicketAttachment, filename: str) -> str:
+    from pathlib import Path
+    from uuid import uuid4
+
+    suffix = Path(filename).suffix.lower()[:10]
+    return f"dev_tickets/{attachment.ticket_id}/{uuid4().hex}{suffix}"
+
+
+def _attachment_storage():
+    from django.core.files.storage import storages
+
+    return storages[conf.get("STORAGE")]
+
+
+class TicketAttachment(TimeStampedModel):
+    """A screenshot or file on a ticket. Served only through `views.attachment_file`."""
+
+    ticket = models.ForeignKey(DevTicket, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to=_attachment_path, storage=_attachment_storage, max_length=200)
+    name = models.CharField(max_length=200)
+    content_type = models.CharField(max_length=100, blank=True)
+    size = models.PositiveIntegerField(default=0)
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["created_at", "pk"]

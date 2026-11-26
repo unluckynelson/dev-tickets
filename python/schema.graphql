@@ -1,0 +1,179 @@
+type BoardIssueType {
+  id: String!
+  identifier: String!
+  title: String!
+  priority: Int!
+  stateId: String!
+  stateName: String!
+  stateType: String!
+  assigneeId: String!
+  assigneeName: String!
+  reporterId: String!
+  reporterName: String!
+  contextLabel: String!
+  labels: [TicketLabelType!]!
+  commentCount: Int!
+  coverId: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type BoardLaneType {
+  id: String!
+  name: String!
+  type: String!
+  issues: [BoardIssueType!]!
+}
+
+type BoardType {
+  teamName: String!
+  lanes: [BoardLaneType!]!
+}
+
+"""Date with time (isoformat)"""
+scalar DateTime
+
+type DevSupportConfigType {
+  enabled: Boolean!
+  prefix: String!
+  boardUrl: String!
+  teamName: String!
+  states: [TicketStateType!]!
+  labels: [TicketLabelType!]!
+  assignees: [TicketMemberType!]!
+  defaultAssigneeId: String
+  priorities: [TicketPriorityType!]!
+  emailUpdates: Boolean!
+}
+
+type DevTicketFeedType {
+  notifications: [TicketNotificationType!]!
+  unreadCount: Int!
+  emailUpdates: Boolean!
+}
+
+type IssueCommentType {
+  id: String!
+  body: String!
+  authorId: String!
+  authorName: String!
+  createdAt: DateTime!
+  editedAt: DateTime
+  mine: Boolean!
+}
+
+type IssueDetailType {
+  id: String!
+  identifier: String!
+  title: String!
+  description: String!
+  priority: Int!
+  stateId: String!
+  stateName: String!
+  stateType: String!
+  assigneeId: String!
+  assigneeName: String!
+  reporterId: String!
+  reporterName: String!
+  pageUrl: String!
+  contextLabel: String!
+  labels: [TicketLabelType!]!
+  comments: [IssueCommentType!]!
+  events: [TicketEventType!]!
+  relations: [TicketRelationType!]!
+  attachments: [TicketAttachmentType!]!
+  subscriberNames: [String!]!
+  subscribed: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Mutation {
+  createDevTicket(title: String! = "", description: String! = "", priority: Int! = 3, assigneeId: String, labelIds: [String!], pageUrl: String! = ""): BoardIssueType!
+  updateDevTicket(id: String!, title: String, description: String, priority: Int, labelIds: [String!]): IssueDetailType!
+  moveDevTicket(id: String!, stateId: String!): BoardIssueType!
+  assignDevTicket(id: String!, assigneeId: String): BoardIssueType!
+  commentOnDevTicket(id: String!, body: String!): IssueCommentType!
+  editDevTicketComment(id: String!, body: String!): IssueCommentType!
+  deleteDevTicketComment(id: String!): Boolean!
+  linkDevTickets(id: String!, otherId: String!, kind: String! = "related"): IssueDetailType!
+  unlinkDevTickets(id: String!, relationId: String!): IssueDetailType!
+  deleteDevTicketAttachment(id: String!, attachmentId: String!): IssueDetailType!
+  subscribeDevTicket(id: String!, on: Boolean!): Boolean!
+  markDevTicketsSeen(id: String = null): Int!
+  setDevTicketEmail(on: Boolean!): Boolean!
+  saveDevTicketLabel(name: String!, color: String!, id: String = null): TicketLabelType!
+  deleteDevTicketLabel(id: String!): Boolean!
+}
+
+type Query {
+  devSupportConfig: DevSupportConfigType!
+  devTickets(limit: Int! = 30): DevTicketFeedType!
+  devTicketBoard: BoardType!
+  devTicketDetail(id: String!): IssueDetailType
+  devTicketSearch(query: String!, limit: Int! = 10): [TicketRefType!]!
+}
+
+type TicketAttachmentType {
+  id: String!
+  name: String!
+  contentType: String!
+  size: Int!
+  uploaderName: String!
+  createdAt: DateTime!
+}
+
+type TicketEventType {
+  id: String!
+  kind: String!
+  actorName: String!
+  summary: String!
+  createdAt: DateTime!
+}
+
+type TicketLabelType {
+  id: String!
+  name: String!
+  color: String!
+}
+
+type TicketMemberType {
+  id: String!
+  name: String!
+  email: String!
+}
+
+type TicketNotificationType {
+  id: String!
+  read: Boolean!
+  summary: String!
+  createdAt: DateTime!
+  ticket: TicketRefType!
+}
+
+type TicketPriorityType {
+  value: Int!
+  label: String!
+}
+
+type TicketRefType {
+  id: String!
+  identifier: String!
+  title: String!
+  stateName: String!
+  stateType: String!
+}
+
+type TicketRelationType {
+  id: String!
+  kind: String!
+  label: String!
+  ticket: TicketRefType!
+}
+
+type TicketStateType {
+  id: String!
+  name: String!
+  type: String!
+  onBoard: Boolean!
+}

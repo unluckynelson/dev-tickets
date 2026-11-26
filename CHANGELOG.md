@@ -6,4 +6,9 @@ versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
-- Repository created; README describes the 1.0 design.
+- `django-dev-tickets` 0.1.0 (`python/`): the dev-ticket app extracted from AutoRoster, with
+  its own GraphQL endpoint (`/devtickets/graphql/`), file views, digest emails, MCP tool
+  definitions and the `DEV_TICKETS` settings hooks. Standalone mode only.
+- `nuxt-dev-tickets` 0.1.0 (`nuxt/`): the board, ticket dialog, report widget (with
+  highlight on page) and notification bell as a Nuxt layer.
+- Playground (`playground/run.sh`): both packages wired together with sample data.

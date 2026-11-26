@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-dev-tickets"
+version = "0.1.0"
+description = "An issue tracker that lives inside your Django app: a kanban board, a report widget and notifications."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "TBD" }
+authors = [{ name = "unluckynelson" }]
+classifiers = [
+    "Framework :: Django",
+    "Framework :: Django :: 5.1",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "Django>=5.1",
+    "strawberry-graphql>=0.240",
+    "markdown>=3.7",
+    "nh3>=0.2.18",
+]
+
+[project.optional-dependencies]
+# The MCP tools are plain functions over the service layer; they need nothing extra.
+mcp = []
+dev = ["pytest>=8", "pytest-django>=4.9", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://github.com/unluckynelson/dev-tickets"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dev_tickets"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+# `--ds` wins over a DJANGO_SETTINGS_MODULE exported by some other project's shell.
+addopts = "--ds=tests.settings -p no:cacheprovider"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["src/dev_tickets/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

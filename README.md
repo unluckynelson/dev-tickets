@@ -13,10 +13,12 @@ A Django app and a Nuxt layer · one versioned release for both
 
 ---
 
-> **Status: being extracted.** Dev Tickets runs in production inside
-> [AutoRoster](https://autoroster.co.za), where it replaced Linear in November 2026. This
-> repository is where it becomes a standalone package. The interfaces below describe 1.0.
-> Until `v1.0.0` is tagged, settings and names may still change.
+> **Status: 0.1, standalone mode works.** Dev Tickets runs in production inside
+> [AutoRoster](https://autoroster.co.za), where it replaced Linear in November 2026, and is
+> now extracted here: the Django app and the Nuxt layer run together in the
+> [playground](#development). Hub and client mode ([below](#one-board-for-every-environment))
+> are designed but not built yet, and nothing is on PyPI or npm until `v1.0.0`; until
+> then, settings and names may still change.
 
 ## Why
 
@@ -78,7 +80,7 @@ dev-tickets/
 Both packages are released together under one version number. `django-dev-tickets 1.4.2`
 and `nuxt-dev-tickets 1.4.2` are always built to work together.
 
-**Requirements:** Python 3.12+, Django 5.0+, Strawberry GraphQL 0.240+ · Node 22+,
+**Requirements:** Python 3.10+, Django 5.1+, Strawberry GraphQL 0.240+ · Node 22+,
 Nuxt 4, PrimeVue 4.
 
 ---
@@ -204,10 +206,12 @@ All settings live in one `DEV_TICKETS` dict.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `MODE` | `"standalone"` | `standalone`, `hub` or `client`. See [below](#one-board-for-every-environment). |
+| `MODE` | `"standalone"` | `standalone`, `hub` or `client`. See [below](#one-board-for-every-environment). Only `standalone` is built so far; the others refuse to start. |
 | `PREFIX` | `"DEV"` | Identifier prefix: `DEV-12`. |
 | `BOARD_URL` | `""` | Absolute URL of the board, used for links in emails. |
-| `CAN_ACCESS` | superusers | `(user) -> bool`. Who may use it, and who can hold a ticket. |
+| `CAN_ACCESS` | active superusers | `(user) -> bool`. Who may see the board, file tickets and get notifications. |
+| `TEAM` | active superusers | `() -> QuerySet` of users. Who can be assigned a ticket. |
+| `TEAM_NAME` | `"Dev"` | Shown on the board. |
 | `CONTEXT_LABEL` | none | `(request) -> str`. The tenant, company or workspace a ticket was filed from. |
 | `TITLE_GENERATOR` | first line | `(description, request) -> str`. Raise or return `""` to fall back. |
 | `SEND_MAIL` | Django `send_mail` | `(subject, text, html, to) -> None`. Plug in your own templated mailer. |
@@ -449,20 +453,26 @@ git clone https://github.com/unluckynelson/dev-tickets
 cd dev-tickets
 
 # backend
-cd python && python -m venv .venv && .venv/bin/pip install -e ".[dev,mcp]"
-.venv/bin/pytest                                  # needs Postgres; see python/README
+cd python && python3 -m venv .venv && .venv/bin/pip install -e ".[dev,mcp]"
+.venv/bin/pytest && .venv/bin/ruff check .        # SQLite, no database server needed
 
 # frontend
-cd ../nuxt && npm install && npm run lint
+cd ../nuxt && npm install && npm run lint && npm run typecheck
 
 # both, wired together, with sample data
-cd ../playground && ./run.sh                      # http://localhost:3300
+cd .. && ./playground/run.sh                      # http://localhost:3300/playground/
 ```
 
-The playground seeds the sample team and tickets shown in the screenshots above, so a
-new screenshot is one command away.
+The playground is Django from `python/` on :8300 and the layer's own Nuxt app
+(`nuxt/.playground`) on :3300, which proxies the backend's paths so the browser sees one
+origin. It seeds the sample team and tickets from the screenshots above. Open
+`http://localhost:3300/playground/` and pick a person to sign in as (Sign out shows what
+someone without access sees). Delete `playground/backend/playground.sqlite3` and
+`.seeded` to start again.
 
 ### Releasing
+
+Not built yet (it is on the roadmap). The plan:
 
 ```bash
 ./scripts/release.sh 1.5.0     # bumps both packages, updates CHANGELOG, tags v1.5.0
@@ -471,9 +481,9 @@ git push --follow-tags         # CI publishes to PyPI and npm
 
 ## Roadmap
 
-- [ ] Extract the backend from AutoRoster into `python/`, with tests
-- [ ] Extract the Nuxt layer into `nuxt/`
-- [ ] Playground app
+- [x] Extract the backend from AutoRoster into `python/`, with tests
+- [x] Extract the Nuxt layer into `nuxt/`
+- [x] Playground app
 - [ ] Hub / client mode and the v1 API
 - [ ] Release workflow (PyPI + npm on tag)
 - [ ] AutoRoster moved onto the package: `v1.0.0`

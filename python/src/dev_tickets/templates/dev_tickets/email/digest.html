@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ team_name }} tickets</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f4f9;">
+  <!-- Layout is tables with inline styles: Gmail and Outlook drop <style> and ignore flex/grid. -->
+  <div style="display:none;max-height:0;overflow:hidden;">{% for item in items %}{{ item.identifier }}: {{ item.changes.0.line }}{% if not forloop.last %} · {% endif %}{% endfor %}</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f1f4f9;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+               style="max-width:760px;background:#ffffff;border-radius:10px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937;">
+          <tr>
+            <td style="padding:24px 28px 8px 28px;">
+              <p style="margin:0 0 20px 0;">Hi {{ name }}, here is what changed on {{ team_name }} tickets you follow.</p>
+
+              {% for item in items %}
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                       style="margin:0 0 28px 0;border:1px solid #e3e8f0;border-radius:8px;">
+                  <tr>
+                    <td style="padding:16px 20px 6px 20px;border-bottom:1px solid #e3e8f0;">
+                      <p style="margin:0 0 10px 0;font-size:17px;font-weight:600;line-height:1.35;">
+                        {% if item.url %}<a href="{{ item.url }}" style="color:#111827;text-decoration:none;">{% endif %}<span style="color:#0a5fd4;">{{ item.identifier }}</span> &nbsp;{{ item.title }}{% if item.url %}</a>{% endif %}
+                      </p>
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 10px 0;font-size:13px;">
+                        {% for label, value in item.facts %}
+                          <tr>
+                            <td style="padding:1px 14px 1px 0;color:#6b7280;white-space:nowrap;vertical-align:top;">{{ label }}</td>
+                            <td style="padding:1px 0;color:#1f2937;word-break:break-word;">{{ value }}</td>
+                          </tr>
+                        {% endfor %}
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:14px 20px 4px 20px;font-size:14px;color:#1f2937;">
+                      <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;">What changed</p>
+                      {% for change in item.changes %}
+                        <p style="margin:0 0 6px 0;color:#374151;">&bull; {{ change.line }}{% if change.body %}:{% endif %}</p>
+                        {% if change.body %}
+                          <div style="margin:0 0 14px 14px;padding:10px 14px 2px 14px;background:#f7f9fc;border-left:3px solid #0a5fd4;border-radius:4px;">{{ change.body }}</div>
+                        {% endif %}
+                      {% endfor %}
+                    </td>
+                  </tr>
+                  {% if item.description %}
+                    <tr>
+                      <td style="padding:10px 20px 4px 20px;font-size:14px;color:#1f2937;border-top:1px solid #e3e8f0;">
+                        <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;">Description</p>
+                        {{ item.description }}
+                      </td>
+                    </tr>
+                  {% endif %}
+                  {% if item.url %}
+                    <tr>
+                      <td style="padding:8px 20px 18px 20px;">
+                        <!-- A table button: Outlook drops padding on a styled <a>. -->
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px 0;">
+                          <tr>
+                            <td style="background:#0a5fd4;border-radius:6px;">
+                              <a href="{{ item.url }}" style="display:inline-block;padding:10px 18px;color:#ffffff;font-weight:600;text-decoration:none;font-size:14px;">Open {{ item.identifier }}</a>
+                            </td>
+                          </tr>
+                        </table>
+                        <!-- The raw URL too: some clients strip anchors. -->
+                        <p style="margin:0;font-size:12px;"><a href="{{ item.url }}" style="color:#6b7280;word-break:break-all;">{{ item.url }}</a></p>
+                      </td>
+                    </tr>
+                  {% endif %}
+                </table>
+              {% endfor %}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 28px 24px 28px;font-size:12px;color:#6b7280;">
+              You're getting this because you reported, were assigned, commented on or follow these
+              tickets. Switch these emails off from the bell.
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

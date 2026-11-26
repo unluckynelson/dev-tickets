@@ -1,0 +1,20 @@
+{% autoescape off %}Hi {{ name }}, here is what changed on {{ team_name }} tickets you follow.
+{% for item in items %}
+==== {{ item.identifier }} · {{ item.title }} ====
+{% for label, value in item.facts %}{{ label }}: {{ value }}
+{% endfor %}
+What changed:
+{% for change in item.changes %}- {{ change.line }}{% if change.text %}:
+
+{{ change.text }}
+{% endif %}
+{% endfor %}{% if item.description_text %}
+Description:
+
+{{ item.description_text }}
+{% endif %}{% if item.url %}
+{{ item.url }}
+{% endif %}{% endfor %}
+You're getting this because you reported, were assigned, commented on or follow these
+tickets. Switch these emails off from the bell.
+{% endautoescape %}
