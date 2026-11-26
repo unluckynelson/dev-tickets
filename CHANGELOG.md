@@ -17,5 +17,8 @@ versions follow [Semantic Versioning](https://semver.org).
   the acting person; tickets point at people matched by email, and record the source
   they came through. `devtickets_client` adds, lists, rotates and revokes keys.
   `./playground/run.sh --client` runs a hub and a client side by side.
+- Fixed for host apps that render on the server (found installing it in BuilderCheck): the
+  board now renders in the browser only, so it no longer fails to hydrate, and the layer
+  registers PrimeVue's `v-tooltip` itself, which went missing when installed from npm or git.
 - Release tooling: `scripts/release.sh`, `scripts/check-versions.sh`, CI on every push,
   and a tag-triggered workflow that publishes to PyPI and npm and makes the GitHub release.

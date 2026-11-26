@@ -174,99 +174,106 @@ function onDrop(lane: BoardLane) {
 </script>
 
 <template>
-  <div v-if="allowed === false" class="page">
-    <Message severity="info" :closable="false">You don't have access to dev tickets.</Message>
-  </div>
-  <div v-else class="page">
-    <header class="head">
-      <div>
-        <h1 v-if="title">{{ title }}</h1>
-        <p class="sub">
-          <template v-if="filtered">{{ shown }} of {{ total }} tickets</template>
-          <template v-else>{{ total }} {{ total === 1 ? 'ticket' : 'tickets' }}</template>
-          on the board; canceled and duplicate ones are off it. Drag a card to another lane
-          to move it. Everyone following a ticket hears about changes.
-        </p>
-      </div>
-      <div class="tools">
-        <Button icon="pi pi-tags" label="Labels" severity="secondary" text @click="showLabels = true" />
-        <Button
-          icon="pi pi-refresh"
-          label="Refresh"
-          severity="secondary"
-          outlined
-          :loading="pending"
-          @click="refresh()"
-        />
-      </div>
-    </header>
-
-    <Message v-if="error" severity="error" :closable="false" class="mb">
-      {{ error.message }}
-    </Message>
-
-    <div v-else-if="!board && pending" class="loading">
-      <ProgressSpinner style="width: 2.5rem; height: 2.5rem" />
+  <!-- Client-only: the data is (the session cookie lives in the browser), so in a host that
+       renders on the server the server's pass would differ from the browser's and fail to hydrate. -->
+  <ClientOnly>
+    <div v-if="allowed === false" class="page">
+      <Message severity="info" :closable="false">You don't have access to dev tickets.</Message>
     </div>
+    <div v-else class="page">
+      <header class="head">
+        <div>
+          <h1 v-if="title">{{ title }}</h1>
+          <p class="sub">
+            <template v-if="filtered">{{ shown }} of {{ total }} tickets</template>
+            <template v-else>{{ total }} {{ total === 1 ? 'ticket' : 'tickets' }}</template>
+            on the board; canceled and duplicate ones are off it. Drag a card to another lane
+            to move it. Everyone following a ticket hears about changes.
+          </p>
+        </div>
+        <div class="tools">
+          <Button icon="pi pi-tags" label="Labels" severity="secondary" text @click="showLabels = true" />
+          <Button
+            icon="pi pi-refresh"
+            label="Refresh"
+            severity="secondary"
+            outlined
+            :loading="pending"
+            @click="refresh()"
+          />
+        </div>
+      </header>
 
-    <template v-else>
-      <Message v-if="moveError" severity="error" class="mb" @close="moveError = ''">
-        Could not move that ticket: {{ moveError }}
+      <Message v-if="error" severity="error" :closable="false" class="mb">
+        {{ error.message }}
       </Message>
 
-      <DevTicketFilters :issues="allIssues" />
-
-      <Message v-if="filtered && !shown" severity="info" :closable="false" class="mb">
-        No ticket matches those filters.
-      </Message>
-
-      <div class="board">
-        <section
-          v-for="lane in visibleLanes"
-          :key="lane.id"
-          class="lane"
-          :class="{ over: overLaneId === lane.id }"
-          @dragover="onDragOver($event, lane)"
-          @dragleave="overLaneId = overLaneId === lane.id ? null : overLaneId"
-          @drop.prevent="onDrop(lane)"
-        >
-          <header class="lane-head" :style="{ borderTopColor: laneAccent(lane.type) }">
-            <span class="lane-name">{{ lane.name }}</span>
-            <Badge :value="lane.issues.length" severity="secondary" />
-          </header>
-
-          <div class="lane-body">
-            <p v-if="!lane.issues.length" class="lane-empty">
-              <template v-if="overLaneId === lane.id">Drop here</template>
-              <template v-else-if="filtered">No match.</template>
-              <template v-else>Nothing here.</template>
-            </p>
-
-            <DevTicketCard
-              v-for="issue in lane.issues"
-              :key="issue.id"
-              :issue="issue"
-              :busy="moving.has(issue.id)"
-              :held="dragging?.issue.id === issue.id"
-              @click="openTicket(issue)"
-              @keydown.enter="openTicket(issue)"
-              @keydown.space.prevent="openTicket(issue)"
-              @dragstart="onDragStart($event, issue, lane.id)"
-              @dragend="onDragEnd"
-            />
-          </div>
-        </section>
+      <div v-else-if="!board && pending" class="loading">
+        <ProgressSpinner style="width: 2.5rem; height: 2.5rem" />
       </div>
-    </template>
 
-    <DevTicketDialog
-      v-model:visible="dialogVisible"
-      :issue-id="openId"
-      @updated="settle($event)"
-      @changed="quietRefresh"
-    />
-    <DevTicketLabels v-model:visible="showLabels" @changed="quietRefresh" />
-  </div>
+      <template v-else>
+        <Message v-if="moveError" severity="error" class="mb" @close="moveError = ''">
+          Could not move that ticket: {{ moveError }}
+        </Message>
+
+        <DevTicketFilters :issues="allIssues" />
+
+        <Message v-if="filtered && !shown" severity="info" :closable="false" class="mb">
+          No ticket matches those filters.
+        </Message>
+
+        <div class="board">
+          <section
+            v-for="lane in visibleLanes"
+            :key="lane.id"
+            class="lane"
+            :class="{ over: overLaneId === lane.id }"
+            @dragover="onDragOver($event, lane)"
+            @dragleave="overLaneId = overLaneId === lane.id ? null : overLaneId"
+            @drop.prevent="onDrop(lane)"
+          >
+            <header class="lane-head" :style="{ borderTopColor: laneAccent(lane.type) }">
+              <span class="lane-name">{{ lane.name }}</span>
+              <Badge :value="lane.issues.length" severity="secondary" />
+            </header>
+
+            <div class="lane-body">
+              <p v-if="!lane.issues.length" class="lane-empty">
+                <template v-if="overLaneId === lane.id">Drop here</template>
+                <template v-else-if="filtered">No match.</template>
+                <template v-else>Nothing here.</template>
+              </p>
+
+              <DevTicketCard
+                v-for="issue in lane.issues"
+                :key="issue.id"
+                :issue="issue"
+                :busy="moving.has(issue.id)"
+                :held="dragging?.issue.id === issue.id"
+                @click="openTicket(issue)"
+                @keydown.enter="openTicket(issue)"
+                @keydown.space.prevent="openTicket(issue)"
+                @dragstart="onDragStart($event, issue, lane.id)"
+                @dragend="onDragEnd"
+              />
+            </div>
+          </section>
+        </div>
+      </template>
+
+      <DevTicketDialog
+        v-model:visible="dialogVisible"
+        :issue-id="openId"
+        @updated="settle($event)"
+        @changed="quietRefresh"
+      />
+      <DevTicketLabels v-model:visible="showLabels" @changed="quietRefresh" />
+    </div>
+    <template #fallback>
+      <div class="page loading"><ProgressSpinner style="width: 2.5rem; height: 2.5rem" /></div>
+    </template>
+  </ClientOnly>
 </template>
 
 <style scoped>
