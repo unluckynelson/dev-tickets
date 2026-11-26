@@ -10,12 +10,14 @@
  * retries once.
  */
 
+import { DevTicketsError } from '../lib/errors'
+
 interface GraphQLResponse<T> {
   data?: T
   errors?: { message: string }[]
 }
 
-export class DevTicketsError extends Error {}
+export { DevTicketsError }
 
 /** One token for the whole page, whichever component asks first. */
 let token: string | null = null

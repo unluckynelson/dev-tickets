@@ -22,5 +22,9 @@ versions follow [Semantic Versioning](https://semver.org).
   registers PrimeVue's `v-tooltip` itself, which went missing when installed from npm or git.
   A host's typecheck also passes over the layer now (`@types/turndown` is a dependency, and
   the API client no longer leans on the host's Nitro route types).
+- Fixed for a layer Nuxt fetches itself (`extends: ['github:unluckynelson/dev-tickets/nuxt#<ref>']`,
+  which is how an npm app installs it, since npm cannot install from a subfolder): the dev
+  server auto-imported `DevTicketsError` into the file declaring it and the app failed to
+  start. The class now lives in `app/lib/errors.ts`, imported by name.
 - Release tooling: `scripts/release.sh`, `scripts/check-versions.sh`, CI on every push,
   and a tag-triggered workflow that publishes to PyPI and npm and makes the GitHub release.
