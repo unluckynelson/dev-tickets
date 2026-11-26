@@ -73,7 +73,8 @@ export function useDevTicketsApi() {
   }
 
   async function post<T>(url: string, body: FormData | Record<string, unknown>, json: boolean): Promise<T> {
-    const send = async (refresh: boolean) => {
+    // Typed as T explicitly: a host's Nitro route types otherwise type $fetch's result by route.
+    const send = async (refresh: boolean): Promise<T> => {
       const csrf = await csrfToken(refresh)
       return $fetch<T>(url, {
         method: 'POST',
@@ -83,7 +84,7 @@ export function useDevTicketsApi() {
           ...(csrf ? { 'X-CSRFToken': csrf } : {}),
         },
         body,
-      })
+      }) as Promise<T>
     }
     try {
       return await send(false)
