@@ -8,12 +8,14 @@ version = "0.1.0"
 description = "An issue tracker that lives inside your Django app: a kanban board, a report widget and notifications."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "TBD" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "unluckynelson" }]
 classifiers = [
     "Framework :: Django",
     "Framework :: Django :: 5.1",
     "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "Django>=5.1",

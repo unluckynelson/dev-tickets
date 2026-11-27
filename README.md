@@ -616,4 +616,5 @@ never `latest`, so nobody upgrades to it by accident.
 
 ## License
 
-To be decided before `v1.0.0`.
+[MIT](LICENSE): free to use, change and redistribute, commercially or not, as long as
+the copyright notice stays with it.

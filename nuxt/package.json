@@ -4,7 +4,7 @@
   "description": "An issue tracker that lives inside your app: kanban board, report widget and notification bell, as a Nuxt layer.",
   "type": "module",
   "main": "./nuxt.config.ts",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/unluckynelson/dev-tickets.git",
