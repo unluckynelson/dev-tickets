@@ -595,8 +595,8 @@ never `latest`, so nobody upgrades to it by accident.
   `django-dev-tickets`: owner `unluckynelson`, repository `dev-tickets`, workflow
   `release.yml`, environment `pypi`. No PyPI token is stored anywhere.
 - **npm:** add a [trusted publisher](https://docs.npmjs.com/trusted-publishers) for
-  `nuxt-dev-tickets`, which npm allows only once the package exists (0.1.0 was published
-  by hand for that): `npm trust github nuxt-dev-tickets --repo unluckynelson/dev-tickets
+  `nuxt-dev-tickets`, which npm allows only once the package exists (a `0.0.0-stage`
+  placeholder holds the name until the first release): `npm trust github nuxt-dev-tickets --repo unluckynelson/dev-tickets
   --file release.yml --env npm --allow-publish`. Then, in the package's settings on
   npmjs.com, require two-factor authentication and disallow tokens. No npm token is
   stored anywhere either.
