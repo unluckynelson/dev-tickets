@@ -594,7 +594,12 @@ never `latest`, so nobody upgrades to it by accident.
 - **PyPI:** add a [trusted publisher](https://docs.pypi.org/trusted-publishers/) for
   `django-dev-tickets`: owner `unluckynelson`, repository `dev-tickets`, workflow
   `release.yml`, environment `pypi`. No PyPI token is stored anywhere.
-- **npm:** create an automation token and save it as the repository secret `NPM_TOKEN`.
+- **npm:** add a [trusted publisher](https://docs.npmjs.com/trusted-publishers) for
+  `nuxt-dev-tickets`, which npm allows only once the package exists (0.1.0 was published
+  by hand for that): `npm trust github nuxt-dev-tickets --repo unluckynelson/dev-tickets
+  --file release.yml --env npm --allow-publish`. Then, in the package's settings on
+  npmjs.com, require two-factor authentication and disallow tokens. No npm token is
+  stored anywhere either.
 - **GitHub:** create the environments `pypi` and `npm` (Settings → Environments). Add
   yourself as a required reviewer if every publish should wait for your approval.
 

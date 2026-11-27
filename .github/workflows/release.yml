@@ -8,7 +8,10 @@ name: Release
 #   PyPI:  add a "trusted publisher" for project django-dev-tickets:
 #          owner unluckynelson, repo dev-tickets, workflow release.yml, environment pypi.
 #          (No token is stored anywhere; GitHub proves who is publishing.)
-#   npm:   create an automation token and save it as the repository secret NPM_TOKEN.
+#   npm:   add a trusted publisher for package nuxt-dev-tickets (it must exist first):
+#          npm trust github nuxt-dev-tickets --repo unluckynelson/dev-tickets \
+#            --file release.yml --env npm --allow-publish
+#          Then, under the package's Settings, require 2FA and disallow tokens.
 #   GitHub: create the environments "pypi" and "npm" (Settings → Environments); add
 #          yourself as a required reviewer there if every publish should wait for a click.
 on:
@@ -83,15 +86,23 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      # Trusted publishing (OIDC, no token) needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
       - run: python3 ../scripts/package-readme.py nuxt "${{ github.ref_name }}"
       - run: npm ci
       - name: Publish (pre-releases go to the "next" tag, never "latest")
+        # Skipped when the version is already on npm, so re-running a release whose
+        # PyPI half failed does not fail here (and 0.1.0 was published by hand, to
+        # create the package a trusted publisher is attached to).
         run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "nuxt-dev-tickets@$version" version >/dev/null 2>&1; then
+            echo "nuxt-dev-tickets@$version is already on npm; nothing to publish."
+            exit 0
+          fi
           tag=latest
           case "${{ github.ref_name }}" in *-*) tag=next ;; esac
-          npm publish --provenance --access public --tag "$tag"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish --access public --tag "$tag"
 
   github-release:
     name: GitHub release
