@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 - Licensed MIT (was undecided), for both packages.
 - Settings on the board (a gear in its corner, or `?settings=<tab>`): lanes, labels,
   notifications and the connection, in one dialog. The Labels button and the bell's email
